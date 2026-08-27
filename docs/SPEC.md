@@ -170,8 +170,8 @@ heluo-code/
 | 语言/运行时 | TypeScript (strict) + Node.js，纯 ESM | Node ≥ 20 |
 | 包管理与仓库 | pnpm workspace monorepo | pnpm ≥ 9 |
 | 测试 | vitest | 最新稳定 |
-| LLM 接入 | Vercel AI SDK v5（`ai` + `@ai-sdk/openai-compatible`） | v5 |
-| 插件基座 | Cordis（`@cordisjs/core`，**确切包名/版本于 P0 核实并锁定**） | dsh vendor 同源 4.x |
+| LLM 接入 | Vercel AI SDK（`ai` + `@ai-sdk/openai-compatible`；规格基线 v5，P0 核实时 npm latest 为 v7.0.83，P1 启动前定版，建议跟 v7 并复核 `stream()` 归一化） | v5（基线；P1 定版，建议 v7） |
+| 插件基座 | Cordis `@cordisjs/core@4.0.0-beta.5`（P0 核实锁定；4.x 但为 beta，对应 R1 风险，core 内做薄封装隔离类型外泄） | dsh vendor 同源 4.x |
 | 桌面壳 | Electron + electron-builder | 最新 LTS |
 | 桌面前端 | React + Vite | 最新稳定 |
 | CLI 交互 | Node 原生 readline（不引 TUI 框架） | — |
@@ -424,7 +424,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 > 详细接口/工具/权限/配置见 `specs/` 下对应详规。
 
 ### P0 脚手架
-- workspace 三包骨架、TS(strict)+ESM+vitest 就绪
+- workspace 两包骨架（core + cli；desktop 包骨架推迟至 P4）、TS(strict)+ESM+vitest 就绪
 - 接入 Cordis：核实 `@cordisjs/core` 最新包名/版本/Node20 ESM 兼容，锁定版本；跑通最小 Context 挂载示例
 - 配置加载插件（见 [specs/config.md](specs/config.md) 最小版）与 boot(profile) 入口
 - **验收**：`pnpm dev` 启动空 REPL；`pnpm test` 绿
@@ -523,11 +523,12 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 
 | # | 问题 | 计划关闭时点 |
 |---|---|---|
-| Q1 | `@cordisjs/core` 确切包名、最新版本、Node≥20 ESM 兼容性、与 dsh vendor 版本的 API 差异 | P0 |
+| Q1 | `@cordisjs/core` 确切包名、最新版本、Node≥20 ESM 兼容性、与 dsh vendor 版本的 API 差异 | P0（已锁定 4.0.0-beta.5，beta） |
 | Q2 | run_command 最终执行器选型（PowerShell 启动开销 vs cmd 兼容性；是否探测 git-bash） | P2 |
 | Q3 | 会话存储 JSONL 是否满足 fork/replay 性能（万条事件级），何时迁 SQLite | P6 前 |
 | Q4 | reasoning 内容（DeepSeek-R 类）进日志的体积策略（全量保真 vs 采样） | P6 |
 | Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | P5 |
 | Q6 | token 计数在非 OpenAI 网关上的口径统一（AI SDK usage 直传 vs 本地估算） | P6 |
+| Q7 | AI SDK 版本偏差：规格写 v5，P0 核实时 npm latest 为 v7.0.83，`stream()` 等归一化 API 可能变动 | P1 启动前 |
 
 
