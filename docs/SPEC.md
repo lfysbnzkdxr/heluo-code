@@ -1,0 +1,533 @@
+# heluo-code 规格说明书（SPEC）
+
+> 版本：v1.0 ｜ 日期：2026-08-27 ｜ 状态：待实施
+>
+> 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
+> 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
+> 所有阶段性实现以本文档及引用详规为验收依据；文档与实现冲突时，先修订文档再改代码。
+
+---
+
+## 目录
+
+1. [项目概述](#1-项目概述)
+2. [术语表](#2-术语表)
+3. [总体架构](#3-总体架构)
+4. [技术选型与决策记录](#4-技术选型与决策记录)
+5. [核心概念与领域模型](#5-核心概念与领域模型)
+6. [接口规格（详规）](#6-接口规格详规) → [specs/interfaces.md](specs/interfaces.md)
+7. [内置工具集（详规）](#7-内置工具集详规) → [specs/tools.md](specs/tools.md)
+8. [权限系统（详规）](#8-权限系统详规) → [specs/permissions.md](specs/permissions.md)
+9. [配置系统（详规）](#9-配置系统详规) → [specs/config.md](specs/config.md)
+10. [客户端规格](#10-客户端规格)
+11. [分阶段实施计划](#11-分阶段实施计划)
+12. [成熟项目借鉴对照表](#12-成熟项目借鉴对照表)
+13. [风险与对策](#13-风险与对策)
+14. [未决问题](#14-未决问题)
+
+---
+
+## 1. 项目概述
+
+### 1.1 一句话定位
+
+- **定位**：从零实现的 AI 编程助手 harness。
+- **特征**：① 无头核心驱动 agent 循环，调用工具读写代码、执行命令完成真实编码任务；② 全面插件化架构（工具、Provider、Agent 定义均可由插件贡献）；③ 交付形态为桌面应用（Electron），开发期附带终端调试界面。
+
+### 1.2 对标产品
+
+Claude Code、OpenAI Codex CLI、opencode、DeepSeek Harness (dsh)、Qoder CN。
+
+### 1.3 目标
+
+| 编号 | 目标 | 衡量方式 |
+|---|---|---|
+| G1 | 完整可用的 agent loop + 工具集，能独立完成「写脚本→运行→修错」类真实任务 | P2 验收 |
+| G2 | 全面插件化：工具、LLM provider、agent 定义均可由插件贡献，新增能力不改核心代码 | P3 验收 |
+| G3 | 桌面应用中完成端到端编码任务，含流式渲染、权限确认卡片、Ask/Agent/Quest 三级模式 | P4 验收 |
+| G4 | 多 agent 编排：主 agent 可派发子任务给子 agent 并汇总结果 | P5 验收 |
+| G5 | 学习价值：核心机制均有清晰的接口边界与文档，便于逐层理解 harness 原理 | 全程 |
+
+### 1.4 非目标（Non-goals，明确不做）
+
+- 不做 IDE/编辑器集成（VS Code/JetBrains 插件）
+- 不做云端/多机协同、账号体系
+- 不做代码补全（NEXT 类功能）
+- 不兼容 dsh/opencode 的插件协议（只借鉴设计，不追求二进制兼容）
+
+> 注：进程级沙箱（Seatbelt/Landlock/Windows Restricted Token 等）**原列为非目标**，经评审调整为 P6 强制项（见 §11 P6-0 与 §13 R8）——v1 仅以权限 + 工作目录软约束为防线，但安全隔离在 P6 补上。
+
+---
+
+## 2. 术语表
+
+| 术语 | 含义 |
+|---|---|
+| **Harness** | 包裹 LLM 的运行时骨架：agent 循环、工具执行、会话管理、权限控制的总和 |
+| **Agent Loop** | 核心循环：用户输入 → LLM 推理 → 工具调用 → 结果回传 → 继续推理，直至产出最终回答 |
+| **Turn（回合）** | 从接收到一次用户输入开始，到不再欠任何工作为止的完整周期；一个 turn 包含零或多个 step |
+| **Step（步骤）** | 一次模型请求 + 该次响应所调用的全部工具执行 |
+| **SessionEvent** | 会话日志中的原子事实记录（append-only），见 §5.2 |
+| **Seam（接缝）** | 一个可替换能力的三角色组合：Service Definition（契约）/ Service Provider（实现）/ Consumer（消费方），借鉴自 dsh |
+| **Cordis** | 开源插件框架（Koishi 生态），dsh 底层同款；提供服务容器、依赖注入、类型化事件、可逆副作用 |
+| **Op / EventMsg** | 客户端→核心的提交指令 / 核心→客户端的事件消息（借鉴 codex 双队列协议） |
+| **Ask / Agent / Quest** | 三级自主性模式：只读问答 / 读写需确认 / 预设边界内全权委托（借鉴 Qoder） |
+| **PTC** | Programmatic Tool Calling，模型生成一段代码批量组合多轮工具调用的模式（dsh 的 Code Mode，本项目仅记录为远期方向） |
+
+---
+
+## 3. 总体架构
+
+### 3.1 架构范式
+
+采用业界验证过的「**无头核心（headless core）+ 薄客户端**」范式。core 包零 UI 依赖、零平台依赖，通过服务接口与事件流对外暴露能力；CLI 与桌面端都是它的消费者。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      packages/desktop                        │
+│   Electron main ──IPC(Op/EventMsg)── React 渲染进程          │
+│        │ 加载 core 并组装 Context                             │
+└────────┼────────────────────────────────────────────────────┘
+          │ 进程内直接调用
+┌────────▼────────────────────────────────────────────────────┐
+│                      packages/core                           │
+│                                                              │
+│   Cordis Context（插件内核：挂载/卸载/依赖解析/可逆副作用）    │
+│   ├── ctx.sessions     仅追加 SessionEvent 日志 + 投影       │
+│   ├── ctx.llm          AI SDK 适配 seam（多 provider 注册制） │
+│   ├── ctx.tools        工具注册表 + guarded 执行管线          │
+│   ├── ctx.agents       Agent 接口 + 活跃注册表                │
+│   ├── ctx.agentLoop    默认循环（Agent 接口的可替换实现）      │
+│   └── 内置插件: tools-fs / tools-shell / permissions /        │
+│                 system-prompt / subagent(P5)                  │
+└────────┬────────────────────────────────────────────────────┘
+          │ 进程内直接调用
+┌────────▼────────────────────────────────────────────────────┐
+│              packages/cli （开发调试 REPL，非交付物）          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 仓库结构（pnpm workspace monorepo）
+
+```
+heluo-code/
+├── pnpm-workspace.yaml
+├── docs/
+│   ├── SPEC.md                    # 主契约（docs/specs/ 为按域详规）
+│   └── specs/                     # 接口/工具/权限/配置等密度高详规
+├── packages/
+│   ├── core/                      # @heluo-code/core
+│   │   └── src/
+│   │       ├── services/
+│   │       │   ├── session/       # SessionEvent 日志、deriveMessages、内存 store
+│   │       │   ├── llm/           # AI SDK 适配器封装、StreamChunk 归一化
+│   │       │   ├── tools/         # 工具注册表、guarded 执行管线
+│   │       │   ├── agent/         # Agent 接口、registry、factory
+│   │       │   └── loop/          # 默认 agent loop（turn/step 驱动）
+│   │       ├── plugins/           # 内置能力（均以 Cordis 插件形态存在）
+│   │       │   ├── tools-fs/
+│   │       │   ├── tools-shell/
+│   │       │   ├── permissions/
+│   │       │   ├── system-prompt/
+│   │       │   └── config/
+│   │       ├── shared/            # 公共类型、错误定义、工具函数
+│   │       └── index.ts           # boot(profile) 入口：按序挂载插件树
+│   ├── cli/                       # @heluo-code/cli，bin: heluo-code
+│   │   └── src/index.ts           # readline REPL（P1–P3 的主要交互面）
+│   └── desktop/                   # @heluo-code/desktop（P4 起）
+│       ├── src/main/              # Electron 主进程：boot core + IPC bridge
+│       ├── src/preload/           # contextBridge 白名单 API
+│       └── src/renderer/          # React + Vite 聊天界面
+└── vitest.workspace.ts
+```
+
+### 3.3 数据流（一次典型 turn）
+
+```
+用户输入
+  → Op(user-turn) 提交
+  → agentLoop 打开 turn，写入 session log ('turn/start')
+  → system-prompt 组装提示词片段 + 工具 schema
+  → sessions.deriveMessages() 从日志投影模型历史
+  → ctx.llm.stream() 发起流式请求（AI SDK）
+  → 流式 chunk 逐条写入 session log（assistant/chunk 等）并广播
+  → 若返回 tool_call：
+      → tools 管线 pre-execute 瀑布钩子（权限门在此拦截）
+      → execute(args, ctx)，结果写入 session log ('tool/result')
+      → 回到步骤「deriveMessages」，进入下一个 step
+  → 无 tool_call 时写入 'assistant/message'，关闭 turn ('turn/end')
+  → UI 由实时广播的 SessionEvent 流驱动渲染（从不轮询）
+```
+
+---
+
+## 4. 技术选型与决策记录
+
+### 4.1 选型总表
+
+| 维度 | 选择 | 版本基线 |
+|---|---|---|
+| 语言/运行时 | TypeScript (strict) + Node.js，纯 ESM | Node ≥ 20 |
+| 包管理与仓库 | pnpm workspace monorepo | pnpm ≥ 9 |
+| 测试 | vitest | 最新稳定 |
+| LLM 接入 | Vercel AI SDK v5（`ai` + `@ai-sdk/openai-compatible`） | v5 |
+| 插件基座 | Cordis（`@cordisjs/core`，**确切包名/版本于 P0 核实并锁定**） | dsh vendor 同源 4.x |
+| 桌面壳 | Electron + electron-builder | 最新 LTS |
+| 桌面前端 | React + Vite | 最新稳定 |
+| CLI 交互 | Node 原生 readline（不引 TUI 框架） | — |
+| 会话持久化 | JSONL 文件（每会话一文件）；SQLite 列为 P6 评估项 | — |
+
+### 4.2 决策记录（ADR 摘要）
+
+| # | 决策 | 结论与理由 | 被否决的备选 |
+|---|---|---|---|
+| D1 | 无头核心 + 薄客户端 | 三款标杆产品共同范式；core 天然复用 | 单体 CLI 应用（无法演进到桌面）；本地 HTTP server 层（单机单客户端场景属过度设计，留待多客户端需求出现再加） |
+| D2 | Vercel AI SDK 作为 Provider 层 | 跨网关兼容已被生产验证（opencode 同款）；统一流式接口覆盖 DeepSeek/Qwen/Kimi/GLM/Ollama | 自研 fetch 客户端 ~200 行（学习价值高但重复造轮子，且 seam 已留好随时可替换）；openai npm SDK（国产网关抽象泄漏多：`reasoning_content` 缺失、部分网关拒收 `stream_options` 等） |
+| D3 | Cordis 作为插件基座 | 「万物皆插件」有工业级地基；dsh vendor 同源，可直接精读其用法；服务容器/inject/可逆副作用开箱即得 | 自研微型内核 ~150 行（学习更深但重造已验证轮子）；简单 EventBus（无依赖注入、无热插拔） |
+| D4 | Cordis 自 P1 引入而非 P3 重构 | 避免伤筋动骨的重构；P1 即按服务骨架搭建，后续零迁移成本 | 先裸写后重构（重构代价大） |
+| D5 | Electron 作为桌面壳 | TS 全栈统一；main 进程原生拥有 fs/shell 直接跑 core | Tauri（core 是 TS，必须拆成 Node sidecar 进程，凭空多一层 IPC） |
+| D6 | 桌面壳先行，编排后置 | 用户核心诉求为桌面端；编排在真实 GUI 中才呈现看板价值 | 多 agent 编排先行（逻辑完整再上 UI，周期长见效慢） |
+| D7 | 权限 = `tools/pre-execute` 瀑布钩子链 | 拦截点可插拔，MCP/hooks 免费获得挂载位置 | 在 loop 里硬编码 if-check（不可扩展） |
+| D8 | 会话日志单一真相源自 P1 开始 | resume/fork/replay/UI 全部由同一流派生；事后补持久化代价极大 | 内存 messages 数组起步（需二次重构） |
+| D9 | grep 用纯 Node 实现 | MVP 零外部依赖，Windows 友好 | 依赖 ripgrep 二进制（性能更优，列为 P6 可选加速项） |
+
+### 4.3 可测试性与 mock provider
+
+agent 系统的测试难点在于 LLM 行为不确定、工具链长、端到端依赖真实网络。测试分层：
+
+| 层 | 范围 | 关键手段 |
+|---|---|---|
+| 单元 | 工具实现、权限钩子、投影/合并逻辑 | 真实对象 + 内存 fixtures |
+| 集成 | loop 驱动一次 turn、工具调用闭环 | **mock LLM provider**（回放预录的 `StreamChunk` 序列，不触网、确定性、廉价） |
+| 场景 | 给定输入序列，断言 `SessionEvent` 完整序列 | 录制/回放 fixture，校验日志不变量 |
+
+**mock LLM provider 列为 P1 交付物**：它自身即一个 `ctx.llm` 适配器插件（契合 seam），后续所有集成/场景测试均以其为基座，避免对真实网关的依赖。
+
+---
+
+## 5. 核心概念与领域模型
+
+### 5.1 服务骨架（ctx.* 键位规划）
+
+每个服务占据稳定的 `ctx.<key>` 键位，插件通过 `inject` 声明依赖而非硬编码 import（借鉴 dsh）：
+
+| ctx 键 | 职责 | 提供者 |
+|---|---|---|
+| `ctx.sessions` | 仅追加 SessionEvent 日志、内存 store、`deriveMessages()` 投影、fork/resume | core/services/session |
+| `ctx.systemPrompt` | 提示词片段注册表 + 工具 schema 组装 | core/plugins/system-prompt |
+| `ctx.tools` | 工具注册表 + guarded 执行管线（pre-execute/post-execute 钩子） | core/services/tools |
+| `ctx.llm` | provider 适配器注册 seam + 统一流式词汇 | core/services/llm |
+| `ctx.agents` | Agent 接口、活跃注册表、`agent/*` 事件 | core/services/agent |
+| `ctx.agentLoop` | 默认循环驱动器（Agent 接口的默认实现，可替换） | core/services/loop |
+| `ctx.config` | 配置加载与分层合并 | core/plugins/config |
+| `ctx.permissions` | 权限策略查询 + always 记忆存取 | core/plugins/permissions |
+
+规则：
+- 消费方只依赖服务键与服务契约，永不 import 具体实现包。
+- 服务提供方可替换（seam）：例如把 `ctx.llm` 后端换掉时，`agentLoop` 等消费方零改动。
+
+**系统提示词骨架（system-prompt 插件负责组装，P1 实现据此不遗漏段落）**：
+```
+系统提示词 =
+  + 身份声明（角色 / 能力边界 / 不可为）
+  + 环境信息（cwd、OS、当前时间、可用工具清单）
+  + 工具使用约定（何时调用、参数填写规范、结果解读）
+  + 用户自定义指令（遵循 AGENTS.md 开放约定：零配置自动发现全局 `~/.heluo-code/AGENTS.md` 与项目根 `AGENTS.md`，二者拼接进提示词；`rules` 配置字段为附加/覆盖路径；单文件上限 32 KiB）
+  + 插件贡献的提示词片段（按注册序拼接）
+```
+各段为独立注册项，拼接顺序稳定（保 prompt cache，见 R4）。
+
+### 5.2 会话日志（单一真相源）
+
+**不变量（运行时断言强制）**：凡进入模型请求的信息，必须能从会话日志重建——「Model-visible means logged」。
+
+```ts
+interface SessionEventMap {
+  // —— 用户域 ——
+  'user/message':      { text: string }
+  // —— 模型域（原始流保真）——
+  'reasoning/chunk':   { stepId: string; delta: string }
+  'assistant/chunk':   { stepId: string; delta: string }   // 原始流式块，回放/UI 保真
+  'assistant/message': { stepId: string; content: string } // 落定的完整消息
+  // —— 工具域 ——
+  'tool/call':         { stepId: string; callId: string; name: string; args: unknown }
+  'tool/result':       { callId: string; output: string; isError: boolean; durationMs: number }
+  // —— 权限域 ——
+  'permission/request':  { id: string; tool: string; argsSummary: string }
+  'permission/response': { id: string; decision: 'allow' | 'deny' | 'always' }
+  // —— 结构域（turn/step 边界为持久事实）——
+  'turn/start': { turnId: string }
+  'turn/end':   { turnId: string; stopReason: 'completed'|'interrupted'|'error'; usage?: TokenUsage }
+  'step/start': { stepId: string }
+  'step/end':   { stepId: string }
+  // —— 编排域（P5）——
+  'subagent/spawn':    { agentId: string; task: string }
+  'subagent/finished': { agentId: string; summary: string }
+}
+// 每条日志记录自动附加: { id, sessionId, schemaVersion: 1, timestamp, type, properties }
+```
+
+派生关系（一份事件流，多处受益）：
+
+| 能力 | 派生方式 |
+|---|---|
+| 模型历史 | `deriveMessages()` 将日志投影为 OpenAI 格式 messages |
+| UI 渲染 | 订阅实时广播的同一事件流（桌面端 EventMsg 即日志事件的转发） |
+| resume | 重启后从 JSONL 尾部恢复状态继续 derive |
+| fork | 复制日志前缀到新会话文件 |
+| Trajectory 审查视图 | 按 type/source 过滤展示（P6） |
+| 上下文压缩 | compaction 能力读取旧日志生成摘要事件替换投影区间（P6） |
+
+存储格式 v1：JSONL，每会话一文件，位于 `~/.heluo-code/sessions/<id>.jsonl`。
+
+**会话生命周期（v1）**：不做自动清理，文件只增不减；`~/.heluo-code/sessions/` 长期积累由用户手动管理。归档/过期策略（如 90 天无访问压缩归档）列为 P6 评估项。
+
+**投影性能（实现约束）**：`deriveMessages()` 允许增量投影——缓存上一次投影结果，仅处理自该点以来的新增事件，不要求每次 step 全量重建。投影函数须为纯函数，便于重放与测试。
+
+**最小上下文窗口管理（v1 起生效，compaction 为其增强）**：v1 不做智能压缩，但必须防止窗口溢出崩溃。策略：
+- 维护每会话的估算 token 数：**以字符启发式估算为主**（CJK 约 3.5 字符/token、EN 约 4 字符/token），`usage` 返回数据仅用于周期性校准启发式系数，不实时依赖（因为 `deriveMessages()` 在发送请求前就需要决定截断，而 `usage` 要等响应后才返回，存在时序 gap）；
+- 设定软上限 = 模型上下文窗口 × 0.9（窗口值由 provider 声明，未知时取保守默认 32K）；
+- 超出软上限时：保留系统提示词 + 最近 K 条消息（K 可配置，默认 20），更早消息整体尾部截断并附一行 `[history trimmed]` 标注，不进入模型请求；
+- 当仍超上限（单条消息过大）时，拒绝开始该 step 并向用户说明，等待手动干预；
+- 智能 compaction（摘要替换）作为 P6 可替换能力，不阻塞 v1。
+
+### 5.3 Turn / Step 语义（借鉴 codex+dsh）
+
+- **turn**：一次用户输入触发的完整工作单元。打开于首个输入被认领，关闭于无未完成工作时。`turn/*` 事件持久化。
+- **step**：一次模型请求 + 其触发的全部工具调用。`step/start` 到 `step/end` 之间包含该次的 chunk/tool 事件。
+- 中断（Interrupt）：用户可随时打断；当前工具收到 AbortSignal，turn 以 `stopReason: 'interrupted'` 关闭，日志保留已完成部分。
+- 循环安全：单 turn 最大 step 数默认 **40**（可配置），超限强制结束并向模型说明。
+- **并发不变量（v1 生效）**：单会话同一时刻仅允许一个活跃 turn（单 turn 串行）。用户在 turn 运行期间提交第二条 `user-turn` Op → **直接拒绝**并提示「会话忙，请先中断当前任务」（v1 取最简实现，不引入排队；用户可用 `interrupt` 随时打断后重新提交）。`interrupt` Op 可随时打断当前 turn。子 agent 与主 agent 可能并发操作同一文件，v1 定义 **last-writer-wins**，不做文件锁（冲突检测列为 P6 评估）。
+
+### 5.4 Agent 与子 agent（P5 生效，接口先行）
+
+- `AgentDefinition`：声明 id、systemPrompt、工具白名单、模型偏好、权限模式。内置插件可贡献预定义 agent（如后续的 explorer/coder/reviewer 角色）。
+- 主 agent 通过 `spawn_subagent` 工具创建子 agent：子 agent 拥有**独立会话日志**与受限工具集，完成后仅将摘要回传主会话（上下文隔离，防污染）。
+- 子 agent 创建走 seam：`ctx.agents` 为契约，默认 Provider「新建本进程子 agent」，未来可替换为「委派给外部产品」（dsh 设计预留）。
+- 并发度上限默认 4，超出排队。
+
+### 5.5 插件形态
+
+```ts
+import type { Context } from '@cordisjs/core'   // 包名 P0 核实
+
+interface DiyAgentPlugin {
+  name: string                       // 唯一 id，供 patch/禁用引用
+  inject?: string[]                  // 依赖的服务键，就绪后才启动
+  apply(ctx: Context, config?: unknown): void | Promise<void>
+}
+```
+
+- **内置插件**随 core 分发，由 boot profile 按序挂载；
+- **外部插件**（P3）：npm 包名或本地路径，在项目配置 `plugins` 字段声明后加载；
+- 所有注册（工具、provider、prompt 片段、事件监听、定时器）必须经由 Cordis effect 完成，卸载时逆序回滚——这是热启停的前提；
+- MCP 工具（P6）：转换为与内置工具完全相同的 `ToolDefinition` 后进入 `ctx.tools`，对模型透明（opencode 同构化思路）。
+
+### 5.6 错误处理策略
+
+覆盖 §3.3 正常路径之外的异常路径，保证日志一致性与可恢复性。
+
+- **LLM 层容错**：`ctx.llm.stream()` 遇超时 / 429 / 5xx 时，由 adapter 内部按策略重试——默认最多 3 次、指数退避（1s→2s→4s）、带 `signal` 可中断；可配置「降级 provider」：主 provider 连续失败后切换至备用 provider 继续该 step；所有重试/降级动作写入 core 日志（§5.7）但不作为模型可见事件。
+- **turn 级错误闭合**：任何不可恢复错误（超限、降级仍失败、致命配置错误）以 `turn/end` 携带 `stopReason:'error'` 闭合，并附错误摘要；**绝不遗留半开的 turn**，日志状态机保持自洽。
+- **工具层幂等与崩溃**：工具实现应尽量幂等；`run_command` 进程崩溃时由执行器清理进程树并写入 `tool/result`（`isError:true`）。若 core 进程在工具执行中途被强杀，重启后从 JSONL 尾部恢复，未闭合的 `step/start` 视为中断（不投影进历史）。
+- **流式中断回滚**：网络断流导致 `assistant/chunk` 只写了半截时，该 step 不写入 `assistant/message` 落定事件；resume/重投影时仅以完整事件为准，半截 chunk 被丢弃。
+
+### 5.7 可观测性
+
+agent 系统调试难度高（模型不确定 + 工具链长），需独立的运行态日志（区别于会话日志）。
+
+- **core 日志**：内置分级 logger（`core/logger`，不引第三方依赖），级别 debug/info/warn/error，经环境变量 `HELUO_CODE_LOG_LEVEL` 过滤；输出到 stderr，不污染 SessionEvent 流。
+- **关键指标**：每 turn 耗时、累计 token 消耗、工具调用次数/失败率，至少以 `info` 级结构化日志暴露；CLI/桌面端可展示 token 角标（§10）。
+- **会话日志 ≠ 运行日志**：`SessionEvent` 是给模型与 UI 的事实流；core 日志是给开发者的诊断流，二者不混写。
+
+### 5.8 优雅退出（Graceful Shutdown）
+
+覆盖正常退出（关闭窗口 / 收到 SIGINT/SIGTERM）而非错误崩溃的情形。
+
+- 收到退出信号 → 立即对当前活跃 turn 发 `interrupt` → 等待最多 **5 秒**让在途工具收尾（AbortSignal 传播）；
+- 超时仍未结束 → 强杀残留进程树（run_command 执行器负责）；
+- 退出前写入 `turn/end`（`stopReason:'interrupted'`），保证日志状态自洽、可 resume；
+- CLI 的「Ctrl+C 二段式」：第一次中断当前 turn（不退出），第二次才触发上述退出流程；
+- 退出过程中新到达的 `user-turn` Op 一律忽略。
+
+---
+
+## 6. 接口规格（草案）→ 详规
+
+> 完整的 TypeScript 类型定义（Tool / LLM seam / Agent / Op / EventMsg）已外置至
+> [specs/interfaces.md](specs/interfaces.md)（归属 SPEC.md §6）。
+
+---
+
+## 7. 内置工具集规格 → 详规
+
+> 6 个工具（read_file / write_file / edit_file / list_dir / grep_search / run_command）的参数、行为与截断/编码基线已外置至
+> [specs/tools.md](specs/tools.md)（归属 SPEC.md §7）。
+
+---
+
+## 8. 权限系统规格 → 详规
+
+> 双轨模型 / 瀑布钩子链 / 三级模式映射 / always 记忆 / 权限事件闭环已外置至
+> [specs/permissions.md](specs/permissions.md)（归属 SPEC.md §8）。
+
+---
+
+## 9. 配置系统规格 → 详规
+
+> 文件布局与优先级 / Schema / 分层合并语义 / 安全边界已外置至
+> [specs/config.md](specs/config.md)（归属 SPEC.md §9）。
+
+---
+
+## 10. 客户端规格
+
+> §10.2 完整客户端详规（进程模型 / IPC / 功能清单）将于 P4 启动时外置至 `specs/desktop.md`；当前保留于此作为总览。
+
+### 10.1 CLI（packages/cli，开发调试器定位）
+
+- bin 名 `heluo-code`；readline REPL：多行输入（空行提交）、流式打印 assistant/chunk、工具调用单行摘要、权限确认 y/n/a(always)、Ctrl+C 二段式中断（先断 turn 再退出）。
+- 子命令：`dev`（默认 REPL）、`--version`。刻意保持极简（~150 行），不投入 TUI 美化。
+
+### 10.2 Desktop（packages/desktop，P4 起的主交付物）
+
+**进程模型**
+
+```
+main 进程：boot(core profile) → 持有唯一 Context → ipcMain 处理 Op → webContents.send 推 EventMsg
+preload：contextBridge 暴露白名单 API { submit(op), onEvent(cb) }，contextIsolation: true，nodeIntegration: false
+renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对象
+```
+
+**IPC 协议**：即 [specs/interfaces.md](specs/interfaces.md) 的 Op/EventMsg；EventMsg 按 sessionId 分发；断线重连不需要（同进程），但需处理 renderer 刷新后的状态重同步（刷新时全量重放当前会话日志投影）。
+
+**功能清单（P4 验收范围）**
+
+| 功能 | 说明 |
+|---|---|
+| 会话侧栏 | 新建/切换会话，列表来自 sessions store |
+| 聊天主区 | Markdown 渲染、流式光标、reasoning 折叠块（DeepSeek R 类模型）、token 用量角标 |
+| 工具卡片 | 调用名+参数摘要+结果折叠；write/edit 展示 diff 视图 |
+| 权限卡片 | 阻塞式弹卡：参数详情 + allow/deny/always；对应 waiting-permission 状态 |
+| 模式切换 | Ask/Agent/Quest 顶栏三态开关 |
+| 中断 | 停止按钮发送 Op.interrupt |
+| 设置页 | provider/model 选择、API Key 录入（写 credentials.json） |
+| Quest 任务看板（P5 起） | 子任务列表、状态标签、产物查看（侧栏/独立 tab，非 P4 验收范围） |
+
+**打包**：electron-builder；Windows 优先（开发环境 win32），mac/linux 目标列 P6。
+
+---
+
+## 11. 分阶段实施计划
+
+> 每阶段以「验收标准」为完成定义（DoD）；测试随阶段交付（vitest）。
+> 详细接口/工具/权限/配置见 `specs/` 下对应详规。
+
+### P0 脚手架
+- workspace 三包骨架、TS(strict)+ESM+vitest 就绪
+- 接入 Cordis：核实 `@cordisjs/core` 最新包名/版本/Node20 ESM 兼容，锁定版本；跑通最小 Context 挂载示例
+- 配置加载插件（见 [specs/config.md](specs/config.md) 最小版）与 boot(profile) 入口
+- **验收**：`pnpm dev` 启动空 REPL；`pnpm test` 绿
+
+### P1 最小 agent loop ⭐（核心里程碑）
+- 范围：四个核心服务（session/llm/tools/agentLoop）、read_file+write_file、system-prompt 插件、CLI REPL、错误处理骨架（§5.6）、最小上下文窗口管理（§5.2）
+- 接口与类型见 [specs/interfaces.md](specs/interfaces.md)；LLM 归一化见同一文件
+- **mock LLM provider**（§4.3）：回放 `StreamChunk` 序列，作为集成/场景测试基座
+- **验收①**：CLI 中让 AI 读指定文件并正确总结（多轮对话保持上下文）
+- **验收②**：DeepSeek 与 Qwen 各实测一轮 text + tool call 流式往返（R4 冒烟）
+- **验收③**：用 mock provider 跑通一次含工具调用的 turn，断言 `SessionEvent` 序列满足不变量（含错误路径单测）
+
+### P2 工具集补全 + 权限系统
+- 补全 6 个工具（[specs/tools.md](specs/tools.md) 全量行为）；`tools/pre-execute` 瀑布链 + permissions 插件（[specs/permissions.md](specs/permissions.md)）
+- Windows shell 实测定稿（PowerShell 参数、conda/git-bash 场景）
+- 优雅退出（§5.8）：退出流程 + 日志闭合，强中断不留僵尸进程
+- **验收**：AI 独立完成「新建脚本→运行→读报错→修复→再运行通过」闭环；全程权限询问/always 记忆正确；强中断/退出不留僵尸进程、日志状态自洽可 resume
+
+### P3 插件生态化
+- 外部插件加载（npm 包名/本地路径，插件形态见 §5.5）；示范插件 `plugin-web-fetch` 按 seam 三角色组织
+- provider 注册制完善：新增 provider 零核心改动
+- **验收**：不改 core 一行代码接入 web-fetch 插件并被模型调用；插件卸载（dispose）无残留监听
+
+### P4 Electron 桌面壳（拆为 P4a / P4b）
+- 全文客户端详规（§10.2 进程模型/功能清单/IPC）将于 P4 启动时外置至 `specs/desktop.md`
+- **P4a 最小可用 GUI（先打通闭环）**
+  - main/preload/renderer 三层（§10.2 进程模型与安全基线）
+  - Op/EventMsg 协议落地；renderer 刷新状态重同步
+  - 聊天主区流式渲染 + 基础权限卡片（allow/deny/always）
+  - **验收**：脱离 CLI，在 GUI 完成 P2 同款闭环任务（含权限卡片、中断）
+- **P4b 增强体验**
+  - diff 视图、reasoning 折叠块、token 角标
+  - 设置页（provider/model/API Key）、会话侧栏、Ask/Agent/Quest 模式切换
+  - **验收**：完整覆盖 §10.2 功能清单；三级模式切换 + diff 展示 + 多会话切换
+
+### P5 多 agent 编排
+- agents 服务扩展 factory/create/dispose；spawn_subagent 工具 + 独立会话 + 摘要回传；并发上限 4
+- 编排详设（§5.4 详设 + 看板 UI）将于 P5 启动时外置至 `specs/orchestration.md`
+- **验收**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论；看板实时反映状态流转
+
+### P6 产品化（持续迭代池，按优先级排序）
+0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
+1. resume/fork/replay（基于日志派生，预期低成本）+ 会话标题生成
+2. 上下文压缩：compaction 作为可替换能力（接口 + 朴素摘要默认实现），防「摘要的摘要」递归劣化
+3. MCP 接入（stdio transport 优先，工具同构转换）
+4. shell 环境快照（会话启动抓取 PATH/alias/env，解决执行环境不一致）
+5. Trajectory 审查视图、命令级白名单细化、ripgrep 加速、成本统计面板
+6. macOS/Linux 打包
+7. AGENTS.md 完整层级发现（子目录 git根→cwd 逐级拼接、`.heluo-code/AGENTS.override.md` 逃生口、可配 fallback 文件名），v1 仅做零配置自动发现项目根 + 全局层（§5.1）
+
+---
+
+## 12. 成熟项目借鉴对照表
+
+| 来源 | 借鉴点 | 落位于本文 | 规避的坑 / 反面教训 |
+|---|---|---|---|
+| **codex** | Submission/Event 双队列解耦渲染与 loop | §6 Op/EventMsg、§10.2 | 双队列本身是解耦关键，别回到同步调用 UI |
+| codex | 沙箱（能不能）与审批（问不问）分离；Restricted Token/Job Object/ACL 的 Windows 实现 | §8.1、§11 P6-0 | 自研若不做 OS 沙箱（R8），仅靠软约束有越权风险 |
+| codex | 上下文压缩及「摘要的摘要」教训 | §11 P6-2、§5.2 | 压缩递归劣化 → 用模板法避免摘要套摘要 |
+| codex | prompt cache 教训：工具列表固定排序 | §6 ModelRequest.tools 注释、R4 | 工具列表不稳定直接打爆缓存、烧钱 |
+| codex | reasoning_content 在部分网关被吞 | §13 R2 | provider 归一化需显式携带厂商扩展字段 |
+| **Claude Code** | 工具粒度与语义（带行号 Read/唯一匹配 Edit/Grep-Glob 分离） | §7 | — |
+| **opencode** | 无头 server + 多薄客户端范式 | §3.1 | 早期 session 状态管理混乱 → 用事件总线单一真相源（§5.2）规避 |
+| opencode | AI SDK 做 provider 抽象层 | D2 | — |
+| opencode | 事件总线驱动 UI（从不轮询） | §3.3、§5.2 | — |
+| opencode | MCP 工具与内置工具同构化 | §5.5、§11 P6-3 | — |
+| opencode | 配置 JSONC + env 占位符 | §9.1 | — |
+| **DeepSeek Harness** | 万物皆插件：连 loop 都是可替换插件 | §5.1 ctx.agentLoop | 不为插件而插件（R6） |
+| dsh | Cordis 五机制：服务容器/inject/类型化事件/可逆副作用/seam | §3.1、§5.1、§5.5 | O(n²) 抽象膨胀 → 单候选实现时不拆 seam |
+| dsh | 会话日志单一真相源 + Model-visible means logged 断言 | §5.2 | 缺 schemaVersion 难迁移 → 每条事件带版本（§5.2） |
+| dsh | turn/step 事件词汇、waterfall 拦截点 | §5.3、§8.2 | — |
+| dsh | seam 三角色分包（契约/实现/消费） | §5.4、§11 P3/P5 | 过早拆包增加样板，按 D6 规则克制 |
+| dsh | agent.inject() 运行时注入 | §6 ToolContext.inject | — |
+| **Qoder/QoderWork** | Ask/Agent/Quest 三级自主性 | §8.3、§10.2 | 放权需边界，Quest 仍受 cwd 约束（§8.1） |
+| Qoder | Quest 任务看板/状态标签/产物审查 | §11 P5 | — |
+| Qoder | Shell 快照解决环境一致性 | §11 P6-4 | 不做快照则命令环境与用户终端不一致（R3） |
+
+---
+
+## 13. 风险与对策
+
+| # | 风险 | 影响 | 对策 |
+|---|---|---|---|
+| R1 | Cordis 包生态仍在演进（dsh 尚处 preview，上游同样迭代） | API 变动破坏升级 | P0 锁定版本；core 内做一层薄封装隔离 Cordis 类型外泄 |
+| R2 | AI SDK 对个别国产网关的兼容缺口（reasoning 字段、参数差异） | 特定 provider 异常 | P1 双网关冒烟（验收②）；llm seam 允许按 provider 写归一化补丁插件，极端情况替换整个 adapter |
+| R3 | Windows shell 执行差异（PowerShell/cmd/conda/git-bash 的 PATH 与引号规则） | run_command 结果不可靠 | P2 实测定稿执行器参数；P6 环境快照兜底 |
+| R4 | 工具列表顺序不稳定打爆 prompt cache（codex 已踩坑） | 成本上升、变慢 | ModelRequest.tools 强制按名称排序；插件注册不改变呈现顺序 |
+| R5 | Electron 安全面 | 恶意网页内容经模型进入 renderer？ | contextIsolation + preload 白名单；renderer 不持 apiKey；模型输出按纯文本渲染（Markdown 白名单，禁 raw HTML/script） |
+| R6 | 插件化过度抽象导致复杂度膨胀（dsh 公开批评点，O(n²) 交互成本） | 维护困难、理解门槛高 | 遵循 dsh 自己的规则：「只有一个可能的 provider 时不拆分」；每引入一个 seam 必须同时有两个候选实现动机 |
+| R7 | 长 turn 死循环/费用失控 | 体验差、烧钱 | maxStepsPerTurn=40 硬顶；usage 逐 turn 入日志并在 UI 展示 |
+| R8 | `run_command` 文件/网络越权、仓库内 prompt injection 诱导执行破坏性命令 | 数据丢失、隐私外泄 | P6 引入进程级沙箱强制约束；v1 期仅以权限 ask + cwd 软约束 + 命令级白名单为防线（明确告知用户风险） |
+
+---
+
+## 14. 未决问题（实施期逐项关闭）
+
+| # | 问题 | 计划关闭时点 |
+|---|---|---|
+| Q1 | `@cordisjs/core` 确切包名、最新版本、Node≥20 ESM 兼容性、与 dsh vendor 版本的 API 差异 | P0 |
+| Q2 | run_command 最终执行器选型（PowerShell 启动开销 vs cmd 兼容性；是否探测 git-bash） | P2 |
+| Q3 | 会话存储 JSONL 是否满足 fork/replay 性能（万条事件级），何时迁 SQLite | P6 前 |
+| Q4 | reasoning 内容（DeepSeek-R 类）进日志的体积策略（全量保真 vs 采样） | P6 |
+| Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | P5 |
+| Q6 | token 计数在非 OpenAI 网关上的口径统一（AI SDK usage 直传 vs 本地估算） | P6 |
+
+

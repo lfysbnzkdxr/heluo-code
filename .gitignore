@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+build/
+*.tsbuildinfo
+coverage/
+*.log
+.env
+.env.*
+.DS_Store
+.heluo-code/
+credentials.json
