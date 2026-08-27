@@ -1,0 +1,6 @@
+packages:
+  - 'packages/*'
+# Dev-only: pnpm v11 的 `allowBuilds` 无法批准传递依赖（esbuild 经由 vitest/tsx 引入）的
+# 构建脚本，故放开全部构建脚本以允许 esbuild 的 postinstall。依赖均为锁定可信，非生产发布项。
+# 若未来 pnpm 修复 allowBuilds 对传递依赖的匹配，可改回 `allowBuilds: [esbuild]`。
+dangerouslyAllowAllBuilds: true
