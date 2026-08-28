@@ -11,27 +11,33 @@
 
 ```bash
 pnpm install        # 安装依赖（首次会运行 esbuild 的 postinstall）
-pnpm dev            # 启动 CLI 空 REPL（bin: heluo-code）
+pnpm dev            # 启动 CLI REPL（bin: heluo-code；P1：agent loop + 工具 + 权限确认）
 pnpm test           # 运行 vitest 单元测试
 pnpm typecheck      # tsc 严格类型检查（core + cli）
 ```
+
+## 当前进度
+
+- **P1 已实施**（2026-08-28）：最小 agent loop 里程碑完成——session 事件日志 / llm seam / tools 注册表 + guarded 执行管线 / agentLoop / system-prompt / permissions 三级模式 / read_file+write_file / mock LLM provider 测试基座；评审整改两轮已闭环（49 条测试全绿）。
+- 待办：P2 工具集补全（list_dir / edit_file / grep_search / run_command）+ 权限系统全量 + 优雅退出。
 
 ## 仓库结构（当前阶段）
 
 ```
 packages/
-  core/    @heluo-code/core  —— 无头核心（Cordis 插件内核、config 插件、boot 入口）
-  cli/     @heluo-code/cli   —— 开发调试 REPL（P0 空 REPL，agent loop 待 P1）
+  core/    @heluo-code/core  —— 无头核心：Cordis 插件内核 + session/llm/tools/agentLoop 服务
+                               + config/permissions/system-prompt/tools-fs/llm-openai-compatible/llm-mock 插件
+  cli/     @heluo-code/cli   —— 开发调试 REPL（P1：完整 agent loop、read_file/write_file、权限确认、注入）
 ```
 
-`packages/desktop`（Electron 桌面壳）按规划推迟至 **P4** 实施，P0 不建。
+`packages/desktop`（Electron 桌面壳）按规划推迟至 **P4** 实施，当前不建。
 
 ## 配置与运行说明
 
 - 全局配置：`~/.heluo-code/config.jsonc`
 - 项目级配置：`<cwd>/.heluo-code/config.jsonc`（优先级：项目 > 全局 > 内置默认；CLI 参数可覆盖）
 - 支持 JSONC（注释 / 尾逗号）与 `{env:VAR}` 占位替换；字段与合并语义见 [`docs/specs/config.md`](docs/specs/config.md)
-- `providers` / `plugins` 安全边界、AGENTS.md 自动发现按规格在 **P1** 生效，P0 仅做最小加载
+- `providers` / `plugins` 安全边界、AGENTS.md 自动发现已在 **P1** 生效
 - 本地开发避开 C 盘：用环境变量 `HELUO_CODE_HOME` 覆盖全局配置目录（如指向项目内 `.heluo-code/`），详见 [`docs/specs/config.md`](docs/specs/config.md)
 - 临时开发文件放仓库内 `tmp/`（已 gitignore）
 

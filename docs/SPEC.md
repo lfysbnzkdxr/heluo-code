@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.0 ｜ 日期：2026-08-27 ｜ 状态：待实施
+> 版本：v1.1 ｜ 日期：2026-08-28 ｜ 状态：P1 已实施（agent loop 里程碑完成；评审整改两轮已闭环，测试 49 全绿）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -235,7 +235,7 @@ agent 系统的测试难点在于 LLM 行为不确定、工具链长、端到端
   + 用户自定义指令（遵循 AGENTS.md 开放约定：零配置自动发现全局 `~/.heluo-code/AGENTS.md` 与项目根 `AGENTS.md`，二者拼接进提示词；`rules` 配置字段为附加/覆盖路径；单文件上限 32 KiB）
   + 插件贡献的提示词片段（按注册序拼接）
 ```
-各段为独立注册项，拼接顺序稳定（保 prompt cache，见 R4）。
+各段为独立注册项，拼接顺序稳定（保 prompt cache，见 R4）；动态内容（当前时间等环境信息）按 **turn 计算一次、turn 内各 step 复用**，避免 step 间 system 前缀变化击穿前缀缓存。
 
 ### 5.2 会话日志（单一真相源）
 
@@ -286,9 +286,9 @@ interface SessionEventMap {
 
 **最小上下文窗口管理（v1 起生效，compaction 为其增强）**：v1 不做智能压缩，但必须防止窗口溢出崩溃。策略：
 - 维护每会话的估算 token 数：**以字符启发式估算为主**（CJK 约 3.5 字符/token、EN 约 4 字符/token），`usage` 返回数据仅用于周期性校准启发式系数，不实时依赖（因为 `deriveMessages()` 在发送请求前就需要决定截断，而 `usage` 要等响应后才返回，存在时序 gap）；
-- 设定软上限 = 模型上下文窗口 × 0.9（窗口值由 provider 声明，未知时取保守默认 32K）；
-- 超出软上限时：保留系统提示词 + 最近 K 条消息（K 可配置，默认 20），更早消息整体尾部截断并附一行 `[history trimmed]` 标注，不进入模型请求；
-- 当仍超上限（单条消息过大）时，拒绝开始该 step 并向用户说明，等待手动干预；
+- 设定软上限 = 模型上下文窗口 × 0.9（窗口值由 provider 声明 `contextWindow`，未知时取保守默认 32K）；
+- 超出软上限时：保留系统提示词 + 最近 K 条消息（K 可配置，默认 20），更早消息整体尾部截断，并在剩余消息前插入一条 `system` 标注 `[history trimmed: 上下文超限，较早的 N 条消息已被移除]`——标注**进入模型请求**（让模型感知裁剪），被截断的原始消息不进入；
+- 若仍超上限（单条消息过大）：对该条消息按字符上限（softCap × 3.5，覆盖 CJK 3.5 字符/token 比率）截断内容并附 `…[截断]` 标记；「截断后仍拒绝开始该 step」的兜底策略列为后续评估项，v1 不实现；
 - 智能 compaction（摘要替换）作为 P6 可替换能力，不阻塞 v1。
 
 ### 5.3 Turn / Step 语义（借鉴 codex+dsh）
@@ -386,7 +386,7 @@ agent 系统调试难度高（模型不确定 + 工具链长），需独立的�
 
 ### 10.1 CLI（packages/cli，开发调试器定位）
 
-- bin 名 `heluo-code`；readline REPL：多行输入（空行提交）、流式打印 assistant/chunk、工具调用单行摘要、权限确认 y/n/a(always)、Ctrl+C 二段式中断（先断 turn 再退出）。
+- bin 名 `heluo-code`；readline REPL：多行输入（空行提交）、流式打印 assistant/chunk、工具调用单行摘要、权限确认 y/n/a(always)、Ctrl+C 二段式中断（先断 turn 再退出）；未配置 `model` 时启动打印配置指引（配置文件路径与 HELUO_CODE_HOME 覆盖说明）。
 - 子命令：`dev`（默认 REPL）、`--version`。刻意保持极简（~150 行），不投入 TUI 美化。
 
 ### 10.2 Desktop（packages/desktop，P4 起的主交付物）

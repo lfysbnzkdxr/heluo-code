@@ -18,7 +18,7 @@ v1 无 OS 级沙箱，「能不能」降级为两层软边界：
 
 ### 8.2 瀑布钩子链（D7）
 
-`tools/pre-execute` 为 waterfall 事件：监听器依次获得 `(toolName, args, decision)`，必须调用 `next()` 放行；任一监听器可不调 next 而直接给出最终裁决（allow/deny/ask）。内置 permissions 插件是该链条的第一个消费者，未来的 MCP 策略、审计日志、危险命令检测都是追加监听器即可。
+`tools/pre-execute` 为瀑布钩子链：`onPreExecute(hook)` 注册的监听器**按注册序依次 await**，钩子返回 `'allow' | 'deny'`，任一返回 `deny` 即拒绝执行（已实现形态，`services/tools/index.ts`）。内置 permissions 插件是该链条的第一个消费者，未来的 MCP 策略、审计日志、危险命令检测都是追加监听器即可。权限「问不问」的弹窗决策（ask 策略、模式映射、always 记忆）在 permissions 插件内部处理，不暴露为钩子返回值。
 
 ### 8.3 三级模式映射（Qoder 借鉴）
 
@@ -36,7 +36,7 @@ v1 无 OS 级沙箱，「能不能」降级为两层软边界：
 - **run_command**：记录「命令首 token 前缀」（如 `npm` / `git` 放行，`rm` / `curl` 仍每次询问），既保留放权便利又避免 `rm -rf` 类命令被静默放行。
 - **write_file / edit_file**：按「工具名」粒度记忆（v1 简化，已知局限：不区分目标路径；不受信仓库建议用 Agent 模式而非 always）。`run_command` 的命令级白名单细化列为 P6 评估项。
 
-**作用域（设计选择，非遗漏）**：always 记忆为**全局生效**（跨项目共享）。这是 v1 的简化取舍；已知局限是项目 A 的授权会带到项目 B（含写入系统目录等路径）。项目级作用域隔离列为 P6 评估项。
+**作用域（v1 已实现为会话级）**：always 记忆按**会话**生效（`sessionId → 已 always 工具集合`，进程内存，重启即失）。这是 v1 的简化取舍（P1 已交付，对齐 SPEC §11 P2 验收「同 session 内同一工具 always 后不再弹确认」）；跨会话/跨项目全局记忆、记忆持久化、项目级作用域隔离（避免项目 A 的授权带到项目 B）列为 P6 评估项。
 
 UI 需在授权卡片明示记忆范围与边界。
 

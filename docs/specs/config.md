@@ -29,7 +29,8 @@ CLI 参数  >  <project>/.heluo-code/config.jsonc  >  ~/.heluo-code/config.jsonc
     "deepseek": {
       "type": "openai-compatible",
       "baseURL": "https://api.deepseek.com/v1",
-      "models": ["deepseek-chat", "deepseek-reasoner"]
+      "models": ["deepseek-chat", "deepseek-reasoner"],
+      "contextWindow": 65536        // 可选；用于计算上下文软上限（softCap = 窗口 × 0.9，见 SPEC §5.2），未知时默认 32K
     },
     "qwen":     { "type": "openai-compatible", "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1", "models": ["qwen3-coder-plus"] },
     "kimi":     { "...": "..." },
