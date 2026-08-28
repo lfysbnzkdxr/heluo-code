@@ -12,11 +12,19 @@ async function main(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
 
   let turnActive = false
-  let pendingPermission: { id: string } | null = null
+  let pendingPermissionId: string | null = null
   let activeController: AbortController | null = null
+  let currentTurn: Promise<void> | null = null
+  const autoApprove = process.argv.includes('--yes')
 
   ctx.permissions!.onRequest((req) => {
-    pendingPermission = { id: req.id }
+    if (autoApprove) {
+      // 非交互冒烟/CI：权限链照常走一遍（事件/记忆），仅决策自动 allow
+      ctx.permissions!.respond(req.id, 'allow')
+      process.stdout.write(`\n⚙ 自动放行 ${req.tool}\n`)
+      return
+    }
+    pendingPermissionId = req.id
     process.stdout.write(`\n? 允许工具 ${req.tool} ${req.argsSummary} ? [y/n/a]: `)
   })
 
@@ -44,19 +52,27 @@ async function main(): Promise<void> {
     turnActive = true
     const controller = new AbortController()
     activeController = controller
-    try {
-      await ctx.agentLoop!.openTurn({ session, text, signal: controller.signal })
-    } catch (error) {
-      process.stdout.write(`\n! 错误: ${error instanceof Error ? error.message : String(error)}\n`)
-    } finally {
-      turnActive = false
-      activeController = null
-      rl.setPrompt('> ')
-      rl.prompt()
-    }
+    currentTurn = (async () => {
+      try {
+        await ctx.agentLoop!.openTurn({ session, text, signal: controller.signal })
+      } catch (error) {
+        process.stdout.write(`\n! 错误: ${error instanceof Error ? error.message : String(error)}\n`)
+      } finally {
+        turnActive = false
+        activeController = null
+        currentTurn = null
+        try {
+          rl.setPrompt('> ')
+          rl.prompt()
+        } catch {
+          /* readline 已关闭（管道 EOF 退出场景） */
+        }
+      }
+    })()
+    await currentTurn
   }
 
-  console.log('heluo-code REPL (P1)')
+  console.log('heluo-code REPL (P2)')
   console.log(`model=${model}  |  enter 提交（空行），Ctrl+C 中断/退出`)
   console.log('────────────────────────────────────────')
   if (!modelConfig) {
@@ -70,11 +86,11 @@ async function main(): Promise<void> {
 
   let buffer = ''
   rl.on('line', (line) => {
-    if (pendingPermission) {
+    if (pendingPermissionId) {
       const v = line.trim().toLowerCase()
       const decision = v === 'y' || v === 'yes' ? 'allow' : v === 'a' || v === 'always' ? 'always' : 'deny'
-      const id = pendingPermission.id
-      pendingPermission = null
+      const id = pendingPermissionId
+      pendingPermissionId = null
       ctx.permissions!.respond(id, decision)
       return
     }
@@ -95,7 +111,7 @@ async function main(): Promise<void> {
 
   rl.on('SIGINT', () => {
     if (activeController) {
-      pendingPermission = null
+      pendingPermissionId = null
       activeController.abort()
       process.stdout.write('\n（中断当前任务）\n')
     } else {
@@ -104,7 +120,25 @@ async function main(): Promise<void> {
     }
   })
 
+  // SIGTERM（外部 kill/系统关机）：中断进行中 turn 后完整退出（core shutdown 会收尾日志）
+  let sigterm = false
+  process.on('SIGTERM', () => {
+    if (sigterm) return
+    sigterm = true
+    process.stdout.write('\n（收到退出信号，正在关闭…）\n')
+    if (activeController) {
+      pendingPermissionId = null
+      activeController.abort()
+    }
+    rl.close()
+  })
+
   await new Promise<void>((resolve) => rl.on('close', resolve))
+  // 输入流关闭（如管道 EOF）时等待进行中的 turn 收尾，避免打断后遗留半开 turn
+  const pendingId = pendingPermissionId
+  pendingPermissionId = null
+  if (pendingId) ctx.permissions!.respond(pendingId, 'deny')
+  if (currentTurn) await currentTurn
   unsubscribe()
   await app.shutdown()
 }

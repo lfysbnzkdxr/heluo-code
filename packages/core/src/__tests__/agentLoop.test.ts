@@ -4,11 +4,13 @@ import { join } from 'node:path'
 import type { ModelMessage } from 'ai'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { boot } from '../index'
+import type { Config } from '../plugins/config/schema'
+import type { DeepPartial } from '../shared/types'
 import { registerMockScript } from '../plugins/llm-mock'
 import type { AdapterFactory, StreamChunk } from '../services/llm/types'
 import type { SessionEvent } from '../shared/events'
 
-async function setup(overrides: Record<string, unknown> = {}) {
+async function setup(overrides: DeepPartial<Config> = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'heluo-turn-'))
   writeFileSync(join(cwd, 'foo.ts'), 'export const a = 1\n')
   const app = await boot(
@@ -18,7 +20,7 @@ async function setup(overrides: Record<string, unknown> = {}) {
       providers: { mock: { type: 'mock' } },
       permission: { mode: 'quest' },
       ...overrides,
-    } as never,
+    },
   )
   return { app, cwd }
 }
@@ -124,7 +126,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'heluo-inject-'))
     const app = await boot(
       { cwd },
-      { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } } as never,
+      { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } },
     )
     const ctx = app.ctx
     const captured: ModelMessage[][] = []
@@ -192,7 +194,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'heluo-reason-'))
     const app = await boot(
       { cwd },
-      { model: 'reason/x', providers: { reason: { type: 'reason' } }, permission: { mode: 'quest' } } as never,
+      { model: 'reason/x', providers: { reason: { type: 'reason' } }, permission: { mode: 'quest' } },
     )
     const ctx = app.ctx
     const reasonFactory: AdapterFactory = () =>
@@ -219,7 +221,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'heluo-halftext-'))
     const app = await boot(
       { cwd },
-      { model: 'halftext/x', providers: { halftext: { type: 'halftext' } }, permission: { mode: 'quest' } } as never,
+      { model: 'halftext/x', providers: { halftext: { type: 'halftext' } }, permission: { mode: 'quest' } },
     )
     const ctx = app.ctx
     const halfTextFactory: AdapterFactory = (req) =>
@@ -255,7 +257,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'heluo-sysprompt-'))
     const app = await boot(
       { cwd },
-      { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } } as never,
+      { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } },
     )
     const ctx = app.ctx
     const captured: ModelMessage[][] = []
@@ -303,7 +305,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
         model: 'capture/demo',
         providers: { capture: { type: 'capture', contextWindow: 100 } },
         permission: { mode: 'quest' },
-      } as never,
+      },
     )
     const ctx = app.ctx
     const captured: ModelMessage[][] = []
@@ -345,5 +347,39 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
     const results = events.filter((e) => e.type === 'tool/result')
     expect(results.length).toBe(2)
     expect(results.every((e) => (e.properties as { isError: boolean }).isError === false)).toBe(true)
+  })
+
+  it('优雅退出：权限等待中 shutdown 解挂，turn 以 interrupted 闭合且日志自洽', async () => {
+    const { app, cwd } = await setup({ permission: { mode: 'ask' } })
+    const ctx = app.ctx
+    registerMockScript('demo', [
+      {
+        type: 'tool-call',
+        call: { id: 'g1', name: 'write_file', argsJson: JSON.stringify({ path: 'x.txt', content: 'hi' }) },
+      },
+      { type: 'done' },
+    ])
+
+    const session = ctx.agentLoop!.createSession(cwd)
+    const events: SessionEvent[] = []
+    session.subscribe((e) => events.push(e))
+    const p = ctx.agentLoop!.openTurn({ session, text: '写文件' })
+    await Promise.race([
+      new Promise<void>((resolve) => setTimeout(resolve, 20)),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('HANG before shutdown')), 800)),
+    ])
+
+    const shutdownPromise = app.shutdown()
+    const result = await Promise.race([
+      p,
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('HANG after shutdown')), 3000)),
+    ])
+    await shutdownPromise
+
+    expect(result.stopReason).toBe('interrupted')
+    assertInvariants(events)
+    const resp = events.find((e) => e.type === 'permission/response')
+    expect(resp).toBeDefined()
+    expect((resp!.properties as { decision: string }).decision).toBe('deny')
   })
 })

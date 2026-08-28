@@ -10,6 +10,7 @@ import { agentLoopPlugin } from './services/loop'
 import { systemPromptPlugin } from './plugins/system-prompt'
 import { permissionsPlugin } from './plugins/permissions'
 import { toolsFsPlugin } from './plugins/tools-fs'
+import { toolsShellPlugin } from './plugins/tools-shell'
 import { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
 import { llmMockPlugin } from './plugins/llm-mock'
 
@@ -28,6 +29,7 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
   await ctx.plugin(systemPromptPlugin)
   await ctx.plugin(permissionsPlugin)
   await ctx.plugin(toolsFsPlugin)
+  await ctx.plugin(toolsShellPlugin)
   await ctx.plugin(llmOpenAICompatiblePlugin)
   await ctx.plugin(llmMockPlugin)
   await ctx.plugin(agentLoopPlugin)
@@ -49,6 +51,7 @@ export type { AgentLoopService, TurnResult } from './services/loop'
 export { systemPromptPlugin } from './plugins/system-prompt'
 export { permissionsPlugin } from './plugins/permissions'
 export { toolsFsPlugin } from './plugins/tools-fs'
+export { toolsShellPlugin } from './plugins/tools-shell'
 export { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
 export { llmMockPlugin, registerMockScript } from './plugins/llm-mock'
 export type { SessionEvent, SessionEventMap, TokenUsage } from './shared/events'

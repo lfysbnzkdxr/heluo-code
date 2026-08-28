@@ -25,6 +25,8 @@ export interface AgentLoopService {
   createSession(cwd: string): SessionStore
   openTurn(opts: OpenTurnOptions): Promise<TurnResult>
   interrupt(sessionId: string): void
+  interruptAll(): void
+  hasActiveTurns(): boolean
 }
 
 function splitModel(model: string): [string, string] {
@@ -50,6 +52,12 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
     },
     interrupt(sessionId: string) {
       active.get(sessionId)?.abort()
+    },
+    interruptAll() {
+      for (const id of active.keys()) active.get(id)?.abort()
+    },
+    hasActiveTurns() {
+      return active.size > 0
     },
     async openTurn({ session, text, signal }: OpenTurnOptions): Promise<TurnResult> {
       if (active.has(session.id)) {
@@ -149,6 +157,7 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
                 cwd: session.cwd,
                 signal: mySignal,
                 session,
+                callId: tc.id,
                 inject: (t: string) => session.inject(t),
               })
             } catch (error) {

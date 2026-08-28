@@ -28,6 +28,7 @@ export interface ToolContext {
   cwd: string
   signal: AbortSignal
   session: SessionHandle
+  callId: string
   inject(text: string): void
 }
 

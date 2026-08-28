@@ -33,7 +33,7 @@ describe('ToolService', () => {
     const svc = makeService()
     svc.register(tool('alpha'))
     svc.onPreExecute(() => 'deny')
-    const tctx = { cwd: '/', signal: new AbortController().signal, session: {} as unknown as ToolContext['session'], inject() {} } as ToolContext
+    const tctx = { cwd: '/', signal: new AbortController().signal, session: {} as unknown as ToolContext['session'], callId: 'c1', inject() {} } as ToolContext
     const out = await svc.execute('alpha', {}, tctx)
     expect(out.ok).toBe(false)
     expect((out as { errorForModel: string }).errorForModel).toContain('拒绝')
@@ -41,7 +41,7 @@ describe('ToolService', () => {
 
   it('未知工具返回错误结果', async () => {
     const svc = makeService()
-    const tctx = { cwd: '/', signal: new AbortController().signal, session: {} as unknown as ToolContext['session'], inject() {} } as ToolContext
+    const tctx = { cwd: '/', signal: new AbortController().signal, session: {} as unknown as ToolContext['session'], callId: 'c1', inject() {} } as ToolContext
     const out = await svc.execute('nope', {}, tctx)
     expect(out.ok).toBe(false)
   })

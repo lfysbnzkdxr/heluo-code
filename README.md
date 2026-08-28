@@ -11,23 +11,24 @@
 
 ```bash
 pnpm install        # 安装依赖（首次会运行 esbuild 的 postinstall）
-pnpm dev            # 启动 CLI REPL（bin: heluo-code；P1：agent loop + 工具 + 权限确认）
+pnpm dev            # 启动 CLI REPL（bin: heluo-code；P2：agent loop + 6 工具 + 权限确认 + 优雅退出）
 pnpm test           # 运行 vitest 单元测试
 pnpm typecheck      # tsc 严格类型检查（core + cli）
 ```
 
 ## 当前进度
 
-- **P1 已实施**（2026-08-28）：最小 agent loop 里程碑完成——session 事件日志 / llm seam / tools 注册表 + guarded 执行管线 / agentLoop / system-prompt / permissions 三级模式 / read_file+write_file / mock LLM provider 测试基座；评审整改两轮已闭环（49 条测试全绿）。
-- 待办：P2 工具集补全（list_dir / edit_file / grep_search / run_command）+ 权限系统全量 + 优雅退出。
+- **P2 已实施**（2026-08-29）：工具集全量（6/6）——edit_file / list_dir / grep_search / run_command 补齐，Windows shell 实测定稿（Q2 关闭）；权限全量——run_command 命令首 token 前缀 always 记忆、Quest 可配 `questRunCommand`、`tools.exclude`/`grepMaxResults`/`runCommandMaxTimeoutMs`/`editRequiresRead` 配置生效；优雅退出（interrupt → 5s 等待 → 进程树强杀 → 日志闭合）；`tool/stream` 实时输出事件、`post-execute` 钩子；77 条测试全绿（含闭环场景自动断言）。
+- **真测冒烟已通过**（2026-08-29）：CLI 端到端跑通「写脚本→运行报错→修复→再运行」闭环（DeepSeek V4 Flash，11,009 tokens），并修复真测暴露的 5 处缺陷（AI SDK v7 instructions 适配、permissions 同步响应竞态、CLI EOF 退出/退订时机/prompt 崩溃）与评审整改 3 项（gitignore 目录栈、taskkill 兜底、API/文档/测试卫生），详见 docs/SPEC.md §11 P2。
+- 待办：P3 插件生态化。
 
 ## 仓库结构（当前阶段）
 
 ```
 packages/
   core/    @heluo-code/core  —— 无头核心：Cordis 插件内核 + session/llm/tools/agentLoop 服务
-                               + config/permissions/system-prompt/tools-fs/llm-openai-compatible/llm-mock 插件
-  cli/     @heluo-code/cli   —— 开发调试 REPL（P1：完整 agent loop、read_file/write_file、权限确认、注入）
+                               + config/permissions/system-prompt/tools-fs/tools-shell/llm-openai-compatible/llm-mock 插件
+  cli/     @heluo-code/cli   —— 开发调试 REPL（P2：6 工具全量、权限确认、优雅退出）
 ```
 
 `packages/desktop`（Electron 桌面壳）按规划推迟至 **P4** 实施，当前不建。
