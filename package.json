@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --filter @heluo-code/cli dev",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit"
+    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit && tsc -p packages/plugin-web-fetch/tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

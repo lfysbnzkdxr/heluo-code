@@ -50,75 +50,77 @@ export function permissionsPlugin(ctx: Context): void {
     return first ? first.toLowerCase() : null
   }
 
-  ctx.tools!.onPreExecute(async ({ tool, args, tctx }) => {
-    const policy = ctx.root.tools!.get(tool)?.permission
-    if (policy !== 'ask') return 'allow'
-    const config = ctx.root.config?.get()
-    const mode = config?.permission.mode
-    if (mode === 'quest') {
-      // Quest 对 ask 工具自动放行；run_command 按 questRunCommand 配置（默认 ask）
-      if (tool !== 'run_command' || config?.permission.questRunCommand === 'allow') return 'allow'
-    }
+  ctx.effect(() =>
+    ctx.tools!.onPreExecute(async ({ tool, args, tctx }) => {
+      const policy = ctx.root.tools!.get(tool)?.permission
+      if (policy !== 'ask') return 'allow'
+      const config = ctx.root.config?.get()
+      const mode = config?.permission.mode
+      if (mode === 'quest') {
+        // Quest 对 ask 工具自动放行；run_command 按 questRunCommand 配置（默认 ask）
+        if (tool !== 'run_command' || config?.permission.questRunCommand === 'allow') return 'allow'
+      }
 
-    // always 记忆：同 session 内已 always 的工具/命令前缀直接放行，不再弹确认
-    const allowedTools = toolMemory.get(tctx.session.id)
-    if (allowedTools?.has(tool)) return 'allow'
-    if (tool === 'run_command') {
-      const prefix = commandPrefix(args)
-      if (prefix && commandMemory.get(tctx.session.id)?.has(prefix)) return 'allow'
-    }
-
-    const id = randomUUID()
-    const argsSummary = summarize(args)
-    const signal = tctx.signal
-
-    // 先注册 pending 再广播：同步响应的消费者（事件订阅/onRequest 直接 respond）
-    // 在广播后立即 respond 也必须命中，否则响应静默丢失导致挂起
-    let settled = false
-    let resolveDecision!: (d: 'allow' | 'deny' | 'always') => void
-    const finish = (d: 'allow' | 'deny' | 'always') => {
-      if (settled) return
-      settled = true
-      signal?.removeEventListener('abort', onAbort)
-      pending.delete(id)
-      resolveDecision(d)
-    }
-    const onAbort = () => finish('deny')
-    if (signal) signal.addEventListener('abort', onAbort, { once: true })
-    const decisionPromise = new Promise<'allow' | 'deny' | 'always'>((resolve) => {
-      resolveDecision = resolve
-      pending.set(id, { resolve: finish, session: tctx.session })
-    })
-
-    tctx.session.append('permission/request', { id, tool, argsSummary })
-    for (const cb of listeners) cb({ id, tool, argsSummary })
-    logger.info('permission request', { id, tool })
-
-    if (signal?.aborted) finish('deny')
-    const decision = await decisionPromise
-    tctx.session.append('permission/response', { id, decision })
-    if (decision === 'always') {
+      // always 记忆：同 session 内已 always 的工具/命令前缀直接放行，不再弹确认
+      const allowedTools = toolMemory.get(tctx.session.id)
+      if (allowedTools?.has(tool)) return 'allow'
       if (tool === 'run_command') {
         const prefix = commandPrefix(args)
-        if (prefix) {
-          let set = commandMemory.get(tctx.session.id)
+        if (prefix && commandMemory.get(tctx.session.id)?.has(prefix)) return 'allow'
+      }
+
+      const id = randomUUID()
+      const argsSummary = summarize(args)
+      const signal = tctx.signal
+
+      // 先注册 pending 再广播：同步响应的消费者（事件订阅/onRequest 直接 respond）
+      // 在广播后立即 respond 也必须命中，否则响应静默丢失导致挂起
+      let settled = false
+      let resolveDecision!: (d: 'allow' | 'deny' | 'always') => void
+      const finish = (d: 'allow' | 'deny' | 'always') => {
+        if (settled) return
+        settled = true
+        signal?.removeEventListener('abort', onAbort)
+        pending.delete(id)
+        resolveDecision(d)
+      }
+      const onAbort = () => finish('deny')
+      if (signal) signal.addEventListener('abort', onAbort, { once: true })
+      const decisionPromise = new Promise<'allow' | 'deny' | 'always'>((resolve) => {
+        resolveDecision = resolve
+        pending.set(id, { resolve: finish, session: tctx.session })
+      })
+
+      tctx.session.append('permission/request', { id, tool, argsSummary })
+      for (const cb of listeners) cb({ id, tool, argsSummary })
+      logger.info('permission request', { id, tool })
+
+      if (signal?.aborted) finish('deny')
+      const decision = await decisionPromise
+      tctx.session.append('permission/response', { id, decision })
+      if (decision === 'always') {
+        if (tool === 'run_command') {
+          const prefix = commandPrefix(args)
+          if (prefix) {
+            let set = commandMemory.get(tctx.session.id)
+            if (!set) {
+              set = new Set()
+              commandMemory.set(tctx.session.id, set)
+            }
+            set.add(prefix)
+          }
+        } else {
+          let set = toolMemory.get(tctx.session.id)
           if (!set) {
             set = new Set()
-            commandMemory.set(tctx.session.id, set)
+            toolMemory.set(tctx.session.id, set)
           }
-          set.add(prefix)
+          set.add(tool)
         }
-      } else {
-        let set = toolMemory.get(tctx.session.id)
-        if (!set) {
-          set = new Set()
-          toolMemory.set(tctx.session.id, set)
-        }
-        set.add(tool)
       }
-    }
-    return decision === 'deny' ? 'deny' : 'allow'
-  })
+      return decision === 'deny' ? 'deny' : 'allow'
+    }),
+  )
 }
 
 void Object.assign(permissionsPlugin, { inject: ['config', 'tools'] })

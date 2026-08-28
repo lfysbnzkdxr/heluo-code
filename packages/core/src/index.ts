@@ -13,6 +13,7 @@ import { toolsFsPlugin } from './plugins/tools-fs'
 import { toolsShellPlugin } from './plugins/tools-shell'
 import { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
 import { llmMockPlugin } from './plugins/llm-mock'
+import { pluginLoaderPlugin } from './plugins/plugin-loader'
 
 export interface BootResult {
   ctx: HeluoContext
@@ -33,6 +34,7 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
   await ctx.plugin(llmOpenAICompatiblePlugin)
   await ctx.plugin(llmMockPlugin)
   await ctx.plugin(agentLoopPlugin)
+  await ctx.plugin(pluginLoaderPlugin, { profile })
   return {
     ctx,
     shutdown: () => shutdown(ctx),
@@ -54,6 +56,8 @@ export { toolsFsPlugin } from './plugins/tools-fs'
 export { toolsShellPlugin } from './plugins/tools-shell'
 export { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
 export { llmMockPlugin, registerMockScript } from './plugins/llm-mock'
+export { pluginLoaderPlugin, loadExternalPlugin } from './plugins/plugin-loader'
+export type { ToolDefinition, ToolContext, ToolOutcome, SessionHandle } from './services/tools/types'
 export type { SessionEvent, SessionEventMap, TokenUsage } from './shared/events'
 export * from './shared/types'
 export { HeluoError, ConfigError, LlmError } from './shared/error'
