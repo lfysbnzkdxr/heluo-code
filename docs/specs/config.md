@@ -37,7 +37,7 @@ CLI 参数  >  <project>/.heluo-code/config.jsonc  >  ~/.heluo-code/config.jsonc
     "glm":      { "...": "..." },
     "ollama":   { "type": "openai-compatible", "baseURL": "http://localhost:11434/v1", "models": ["qwen3-coder:30b"] }
   },
-  "plugins": ["@heluo-code/plugin-web-fetch", "./local-plugin"],   // P3
+  "plugins": ["@heluo-code/plugin-web-fetch", "./local-plugin"],   // P3 起生效：npm 包名或本地路径（相对项目 cwd）；加载失败记日志不中断启动
   "permission": {
     "mode": "agent",                     // ask | agent | quest
     "questRunCommand": "ask"             // 可选；Quest 模式下 run_command 策略：ask（默认，仍逐条询问）| allow（放行）

@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.2 ｜ 日期：2026-08-29 ｜ 状态：P2 已实施（工具集全量 + 权限全量 + 优雅退出；测试 77 全绿；**DeepSeek V4 Flash 真测冒烟已通过**；评审整改已闭环）
+> 版本：v1.3 ｜ 日期：2026-08-29 ｜ 状态：P3 已实施（插件生态化：外部插件加载 + web-fetch 示范插件 + provider 注册制佐证；测试 89 全绿；评审整改已闭环）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -134,6 +134,7 @@ heluo-code/
 │   │       └── index.ts           # boot(profile) 入口：按序挂载插件树
 │   ├── cli/                       # @heluo-code/cli，bin: heluo-code
 │   │   └── src/index.ts           # readline REPL（P1–P3 的主要交互面）
+│   ├── plugin-web-fetch/          # @heluo-code/plugin-web-fetch（P3 示范外部插件：web_fetch 工具）
 │   └── desktop/                   # @heluo-code/desktop（P4 起）
 │       ├── src/main/              # Electron 主进程：boot core + IPC bridge
 │       ├── src/preload/           # contextBridge 白名单 API
@@ -320,8 +321,11 @@ interface DiyAgentPlugin {
 ```
 
 - **内置插件**随 core 分发，由 boot profile 按序挂载；
-- **外部插件**（P3）：npm 包名或本地路径，在项目配置 `plugins` 字段声明后加载；
-- 所有注册（工具、provider、prompt 片段、事件监听、定时器）必须经由 Cordis effect 完成，卸载时逆序回滚——这是热启停的前提；
+- **外部插件**（P3 起生效）：`config.plugins` 数组声明（仅全局配置，见 §9.1 安全边界），boot 挂载完内置插件后由 plugin-loader 逐个加载：
+  - npm 包名（如 `@heluo-code/plugin-web-fetch`，依赖由用户侧安装）或本地路径（`.` 开头或绝对路径，相对项目 cwd 解析，ESM `import()` 加载，取 `mod.default ?? mod`）；
+  - 单个插件 import/挂载失败 → `logger.error` 记录并继续其余插件，不中断启动；
+  - 插件仅依赖 core 公开导出的契约类型（`Context`/`ToolDefinition`/`ToolContext` 等），不直接依赖 Cordis 或 core 内部模块；
+- 所有注册（工具、provider、prompt 片段、事件监听、定时器）必须经由 Cordis effect 完成，卸载时逆序回滚——这是热启停的前提；P3 起外部插件与 permissions 等内置插件的钩子均以 `ctx.effect` 包裹注册，dispose 后无残留（有自动化断言）；
 - MCP 工具（P6）：转换为与内置工具完全相同的 `ToolDefinition` 后进入 `ctx.tools`，对模型透明（opencode 同构化思路）。
 
 ### 5.6 错误处理策略
@@ -465,10 +469,17 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
   7. **run_command taskkill 失败挂起**：kill 后 `close` 若永不触发则工具永久挂起（连带 shutdown 5s 等待失效）；加 kill 后 1.5s 强制收尾兜底
   8. 小项：`interruptAll()` 返回 void（返回值无人消费）；tools.md timeout_ms「硬上限 900000」口径对齐实现（上限 = 配置值）；测试 `boot(... as never)` 掩盖清理（8 处，改类型化 overrides）
 
-### P3 插件生态化
+### P3 插件生态化 ✅（已实施 2026-08-29）
 - 外部插件加载（npm 包名/本地路径，插件形态见 §5.5）；示范插件 `plugin-web-fetch` 按 seam 三角色组织
 - provider 注册制完善：新增 provider 零核心改动
 - **验收**：不改 core 一行代码接入 web-fetch 插件并被模型调用；插件卸载（dispose）无残留监听（waterfall 钩子、事件订阅全部反注册）；外部插件与内置插件在 `tools/pre-execute` 链路上共存不互相覆盖（§8.2）
+- **实施记录（2026-08-29）**：
+  - core 新增 `plugins/plugin-loader`（§5.5 外部加载语义：npm 包名/本地路径、失败不中断、effect 包裹注册）；boot 内置挂载完成后加载外部插件
+  - 示范插件 `packages/plugin-web-fetch`（`@heluo-code/plugin-web-fetch`）：`web_fetch` 工具（仅 http/https、HTML 剥离、50K 截断、15s 超时、`permission: 'allow'`）；仅依赖 core 公开契约类型
+  - core 契约导出补齐：`ToolDefinition/ToolContext/ToolOutcome/SessionHandle`（外部插件即 seam 三角色的「契约」消费方）
+  - permissions 插件 pre-execute 钩子补包 `ctx.effect`（P2 遗漏，热卸载卫生）；根 typecheck 覆盖新包
+  - 测试 89 全绿（新增 12 条：验收①—⑤ + 失败不崩溃 + 插件形态直挂 + web_fetch 行为 5 条），详见 `tmp/plans/p3-plugins.md`
+- **偏差记录**：tools-fs / tools-shell / system-prompt 等内置插件注册仍为直接调用（assume 应用常驻），未全部改接 effect——热启停内置插件不在 P3 范围，P5（子 agent 生命周期）前评估统一；`plugins` 暂不支持给外部插件传配置（`{ name, config }` 对象形式），需要时再扩
 
 ### P4 Electron 桌面壳（拆为 P4a / P4b）
 - 全文客户端详规（§10.2 进程模型/功能清单/IPC）将于 P4 启动时外置至 `specs/desktop.md`
@@ -496,6 +507,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 5. Trajectory 审查视图、命令级白名单细化、ripgrep 加速、成本统计面板
 6. macOS/Linux 打包
 7. AGENTS.md 完整层级发现（子目录 git根→cwd 逐级拼接、`.heluo-code/AGENTS.override.md` 逃生口、可配 fallback 文件名），v1 仅做零配置自动发现项目根 + 全局层（§5.1）
+8. web_fetch 的 SSRF 防护（内网/环回地址阻断或显式授权；当前与 read_file 同款信任模型：`permission: 'allow'` + 任意 http/https URL，由 P6-0 沙箱兜底）
 
 ---
 
