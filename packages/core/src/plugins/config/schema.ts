@@ -16,6 +16,7 @@ export const configSchema = z.object({
   plugins: z.array(z.string()),
   permission: z.object({
     mode: z.enum(['ask', 'agent', 'quest']),
+    questRunCommand: z.enum(['ask', 'allow']),
   }),
   loop: z.object({
     maxStepsPerTurn: z.number().int().positive(),
@@ -26,6 +27,8 @@ export const configSchema = z.object({
     grepMaxResults: z.number().int().nonnegative(),
     outputTruncateHead: z.number().int().nonnegative(),
     outputTruncateTail: z.number().int().nonnegative(),
+    runCommandMaxTimeoutMs: z.number().int().positive(),
+    editRequiresRead: z.boolean(),
   }),
 })
 
@@ -37,7 +40,7 @@ export const defaultConfig = {
   model: '',
   providers: {},
   plugins: [],
-  permission: { mode: 'agent' as const },
+  permission: { mode: 'agent' as const, questRunCommand: 'ask' as const },
   loop: { maxStepsPerTurn: 40 },
   rules: [],
   tools: {
@@ -45,6 +48,8 @@ export const defaultConfig = {
     grepMaxResults: 100,
     outputTruncateHead: 500,
     outputTruncateTail: 500,
+    runCommandMaxTimeoutMs: 60000,
+    editRequiresRead: true,
   },
 }
 

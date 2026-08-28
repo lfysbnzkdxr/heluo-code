@@ -12,6 +12,7 @@ export interface SessionEventMap {
   'assistant/chunk': { stepId: string; delta: string }
   'assistant/message': { stepId: string; content: string }
   'tool/call': { stepId: string; callId: string; name: string; args: unknown }
+  'tool/stream': { callId: string; delta: string }
   'tool/result': { callId: string; output: string; isError: boolean; durationMs: number }
   'permission/request': { id: string; tool: string; argsSummary: string }
   'permission/response': { id: string; decision: 'allow' | 'deny' | 'always' }

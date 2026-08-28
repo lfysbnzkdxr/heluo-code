@@ -21,9 +21,17 @@ const factory: AdapterFactory = (req, deps) => {
     apiKey,
   })
   const model = provider.languageModel(req.model)
+  // AI SDK v7：system 消息不允许混入 messages，须经 instructions 选项传递（多条合并为一条）
+  const instructions = req.messages
+    .filter((m) => m.role === 'system')
+    .map((m) => (typeof m.content === 'string' ? m.content : ''))
+    .filter((t) => t.length > 0)
+    .join('\n\n')
+  const messages = req.messages.filter((m) => m.role !== 'system')
   const result = streamText({
     model,
-    messages: req.messages,
+    messages,
+    instructions: instructions || undefined,
     tools: toAiTools(req.tools),
     abortSignal: req.signal,
   })
