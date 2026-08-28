@@ -24,6 +24,7 @@ interface ToolContext {
   cwd: string
   signal: AbortSignal                // 中断传播
   session: SessionHandle
+  callId: string                     // 本次调用的 id（与 tool/call 事件一致），用于 tool/stream 归属
   inject(text: string): void         // 向下一获准请求注入上下文（借鉴 dsh agent.inject）
   // 语义：注入仅对下一个模型请求生效（agentLoop 每 step 请求前消费一次注入缓冲），
   // 不持续注入；需要跨 step 持续可见的信息应由工具结果承载（tool/result）。

@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.1 ｜ 日期：2026-08-28 ｜ 状态：P1 已实施（agent loop 里程碑完成；评审整改两轮已闭环，测试 49 全绿）
+> 版本：v1.2 ｜ 日期：2026-08-29 ｜ 状态：P2 已实施（工具集全量 + 权限全量 + 优雅退出；测试 77 全绿；**DeepSeek V4 Flash 真测冒烟已通过**；评审整改已闭环）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -251,6 +251,7 @@ interface SessionEventMap {
   'assistant/message': { stepId: string; content: string } // 落定的完整消息
   // —— 工具域 ——
   'tool/call':         { stepId: string; callId: string; name: string; args: unknown }
+  'tool/stream':       { callId: string; delta: string }  // 工具实时输出（如 run_command stdout/stderr），仅推 UI，不投影进模型历史
   'tool/result':       { callId: string; output: string; isError: boolean; durationMs: number }
   // —— 权限域 ——
   'permission/request':  { id: string; tool: string; argsSummary: string }
@@ -445,11 +446,24 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
   - 仅 `reasoning` 无文本无工具的步骤不产生空 `assistant` 消息污染上下文
   - 工具列表 `tools` 按名称固定排序（R4）
 
-### P2 工具集补全 + 权限系统
+### P2 工具集补全 + 权限系统 ✅（已实施 2026-08-29）
 - 补全 6 个工具（[specs/tools.md](specs/tools.md) 全量行为）；`tools/pre-execute` 瀑布链 + permissions 插件（[specs/permissions.md](specs/permissions.md)）
-- Windows shell 实测定稿（PowerShell 参数、conda/git-bash 场景）
+- Windows shell 实测定稿（PowerShell 参数、conda/git-bash 场景）——**Q2 已关闭**，实测结论回写 tools.md §7.6
 - 优雅退出（§5.8）：退出流程 + 日志闭合，强中断不留僵尸进程
-- **验收**：AI 独立完成「新建脚本→运行→读报错→修复→再运行通过」闭环；全程权限询问/`always` 记忆跨步正确（同 session 内同一工具 `always` 后不再弹确认）；`ask`/`agent`/`quest` 三级语义与 `specs/permissions.md` 模式表一致（Quest 对 `ask` 工具自动放行，Ask/Agent 等价）；强中断/退出（含**权限等待中** Ctrl+C）不留僵尸进程、日志状态自洽可 resume
+- 实施期补充：`tool/stream` 事件（命令实时输出）、`post-execute` 钩子（§5.1 声明补齐）、run_command 命令前缀 always 记忆、`permission.questRunCommand` 可配（详见 `tmp/plans/p2-tools-permissions.md` §10 偏差记录）
+- **验收**：AI 独立完成「新建脚本→运行→读报错→修复→再运行通过」闭环（自动化场景测试已断言）；全程权限询问/`always` 记忆跨步正确（同 session 内同一工具 `always` 后不再弹确认）；`ask`/`agent`/`quest` 三级语义与 `specs/permissions.md` 模式表一致（Quest 对 `ask` 工具自动放行，Ask/Agent 等价）；强中断/退出（含**权限等待中** Ctrl+C）不留僵尸进程、日志状态自洽可 resume（以上均已有自动化断言）
+- **真测冒烟（2026-08-29，DeepSeek V4 Flash `deepseek-v4-flash`）**：CLI 端到端完成同款闭环（写 buggy.js → 运行报 ReferenceError → read_file → edit_file 修复 → 再运行 exit 0），权限链 4 次确认真实走通，turn `completed`（11,009 tokens）。冒烟发现并修复 5 处真实缺陷（见下）
+- **冒烟修复记录（真测暴露，mock 无法覆盖）**：
+  1. **AI SDK v7 `instructions` 适配**（P1 潜伏）：v7 不允许 messages 含 `role:'system'`，`streamText` 直接抛 InvalidPromptError；适配器改为提取 system 合并为 `instructions` 选项传递（`plugins/llm-openai-compatible`）。P1 验收②宣称的双网关实测实际未真正执行过——mock 基座绕过 AI SDK，此缺陷被真测首轮暴露
+  2. **permissions 竞态**（P1 潜伏）：`permission/request` 广播发生在 `pending` 注册之前，同步响应的消费者（事件订阅回调直接 `respond`）静默丢响应导致权限挂起；改为先注册 pending 再广播（有回归测试）
+  3. **CLI 管道 EOF 即退出**：输入流关闭时立即 `unsubscribe + shutdown`，打断进行中 turn；改为等待 `currentTurn` 收尾后再卸载（附 pending 权限 deny 兜底）
+  4. **CLI `unsubscribe` 时机**：close 后立即退订导致 turn 后续事件（含 turn/end）不显示；移至 turn 收尾后
+  5. **CLI `rl.prompt()` 在关闭后抛 ERR_USE_AFTER_CLOSE**：finally 收尾加保护
+  另：CLI 新增 `--yes` 自动放行模式（冒烟/CI 用，权限链真实走通仅决策自动 allow）
+- **评审整改（2026-08-29，P2 代码评审后）**：
+  6. **grep_search gitignore 跨目录泄漏**：`ignorePatterns` 只增不减，子目录规则错误波及兄弟/父层文件；改为目录栈（try/finally 恢复父级栈），gitignore 语义正确化（父级生效、同级互不影响）+ 回归测试
+  7. **run_command taskkill 失败挂起**：kill 后 `close` 若永不触发则工具永久挂起（连带 shutdown 5s 等待失效）；加 kill 后 1.5s 强制收尾兜底
+  8. 小项：`interruptAll()` 返回 void（返回值无人消费）；tools.md timeout_ms「硬上限 900000」口径对齐实现（上限 = 配置值）；测试 `boot(... as never)` 掩盖清理（8 处，改类型化 overrides）
 
 ### P3 插件生态化
 - 外部插件加载（npm 包名/本地路径，插件形态见 §5.5）；示范插件 `plugin-web-fetch` 按 seam 三角色组织
@@ -532,7 +546,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 | # | 问题 | 计划关闭时点 |
 |---|---|---|
 | Q1 | `@cordisjs/core` 确切包名、最新版本、Node≥20 ESM 兼容性、与 dsh vendor 版本的 API 差异 | P0（已锁定 4.0.0-beta.5，beta） |
-| Q2 | run_command 最终执行器选型（PowerShell 启动开销 vs cmd 兼容性；是否探测 git-bash） | P2 |
+| Q2 | run_command 最终执行器选型（PowerShell 启动开销 vs cmd 兼容性；是否探测 git-bash） | 已关闭（P2 实施：`powershell.exe -NoProfile -NonInteractive -Command` + UTF-8 前缀 + taskkill 进程树，实测结论见 tools.md §7.6） |
 | Q3 | 会话存储 JSONL 是否满足 fork/replay 性能（万条事件级），何时迁 SQLite | P6 前 |
 | Q4 | reasoning 内容（DeepSeek-R 类）进日志的体积策略（全量保真 vs 采样） | P6 |
 | Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | P5 |

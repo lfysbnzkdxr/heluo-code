@@ -28,15 +28,16 @@ v1 无 OS 级沙箱，「能不能」降级为两层软边界：
 | Agent（默认） | allow | ask | ask | 日常结对协作 |
 | Quest | allow | allow(cwd 子树内) | ask(可配为 allow) | 明确任务的放手委托 |
 
-模式切换即时生效（Op.set-mode），作用于后续审批判定，不追溯已放行操作。
+- Quest 下 run_command 的放行由配置 `permission.questRunCommand` 控制：默认 `ask`（保持命令可审计），`allow` 时放行（仍受 cwd 软约束）。
+- 模式切换即时生效（Op.set-mode），作用于后续审批判定，不追溯已放行操作。
 
 ### 8.4 always 记忆
 
 用户选择 always 后的记忆粒度按工具区分（廉价高收益，避免「全工具级 always」的越权风险）：
-- **run_command**：记录「命令首 token 前缀」（如 `npm` / `git` 放行，`rm` / `curl` 仍每次询问），既保留放权便利又避免 `rm -rf` 类命令被静默放行。
+- **run_command**：记录「命令首 token 前缀」（如 `npm` / `git` 放行，`rm` / `curl` 仍每次询问），既保留放权便利又避免 `rm -rf` 类命令被静默放行。比较不区分大小写（PowerShell 命令大小写不敏感）；`allow` 决策**不**写入记忆，仅 `always` 生效。
 - **write_file / edit_file**：按「工具名」粒度记忆（v1 简化，已知局限：不区分目标路径；不受信仓库建议用 Agent 模式而非 always）。`run_command` 的命令级白名单细化列为 P6 评估项。
 
-**作用域（v1 已实现为会话级）**：always 记忆按**会话**生效（`sessionId → 已 always 工具集合`，进程内存，重启即失）。这是 v1 的简化取舍（P1 已交付，对齐 SPEC §11 P2 验收「同 session 内同一工具 always 后不再弹确认」）；跨会话/跨项目全局记忆、记忆持久化、项目级作用域隔离（避免项目 A 的授权带到项目 B）列为 P6 评估项。
+**作用域（v1 已实现为会话级）**：always 记忆按**会话**生效（`sessionId → 已 always 工具/命令前缀集合`，进程内存，重启即失）。这是 v1 的简化取舍（P1 已交付，对齐 SPEC §11 P2 验收「同 session 内同一工具 always 后不再弹确认」）；跨会话/跨项目全局记忆、记忆持久化、项目级作用域隔离（避免项目 A 的授权带到项目 B）列为 P6 评估项。
 
 UI 需在授权卡片明示记忆范围与边界。
 

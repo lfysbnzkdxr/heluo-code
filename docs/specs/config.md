@@ -38,10 +38,20 @@ CLI 参数  >  <project>/.heluo-code/config.jsonc  >  ~/.heluo-code/config.jsonc
     "ollama":   { "type": "openai-compatible", "baseURL": "http://localhost:11434/v1", "models": ["qwen3-coder:30b"] }
   },
   "plugins": ["@heluo-code/plugin-web-fetch", "./local-plugin"],   // P3
-  "permission": { "mode": "agent" },
+  "permission": {
+    "mode": "agent",                     // ask | agent | quest
+    "questRunCommand": "ask"             // 可选；Quest 模式下 run_command 策略：ask（默认，仍逐条询问）| allow（放行）
+  },
   "loop": { "maxStepsPerTurn": 40 },
   "rules": ["./AGENTS.md"],                        // 附加指令文件路径（数组）；v1 默认已自动发现项目根 AGENTS.md 与全局 ~/.heluo-code/AGENTS.md，此字段为额外引入/覆盖；单文件上限 32 KiB
-  "tools": { "exclude": [] , "grepMaxResults": 100, "outputTruncateHead": 500, "outputTruncateTail": 500 }
+  "tools": {
+    "exclude": [],                       // list_dir/grep_search 的额外排除目录名（默认排除 .git/node_modules/dist）
+    "grepMaxResults": 100,
+    "outputTruncateHead": 500,
+    "outputTruncateTail": 500,
+    "runCommandMaxTimeoutMs": 60000,     // run_command 超时硬上限（默认 60s，可放宽至 900s）
+    "editRequiresRead": true             // edit_file 软约束：要求同会话先 read 过目标文件（可关闭）
+  }
 }
 ```
 
