@@ -74,6 +74,15 @@ describe('buildConfig precedence', () => {
     expect(config.providers.x?.baseURL).toBe('https://api.example.com')
   })
 
+  it('parses provider contextWindow', async () => {
+    writeFileSync(
+      join(process.env.HELUO_CODE_HOME!, 'config.jsonc'),
+      `{ "providers": { "x": { "type": "openai-compatible", "contextWindow": 65536 } } }`,
+    )
+    const config = buildConfig({ cwd: base })
+    expect(config.providers.x?.contextWindow).toBe(65536)
+  })
+
   it('throws ConfigError on invalid merged config', () => {
     writeFileSync(join(process.env.HELUO_CODE_HOME!, 'config.jsonc'), `{ "model": 123 }`)
     expect(() => buildConfig({ cwd: base })).toThrow()

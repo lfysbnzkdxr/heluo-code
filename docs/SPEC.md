@@ -280,7 +280,7 @@ interface SessionEventMap {
 
 存储格式 v1：JSONL，每会话一文件，位于 `~/.heluo-code/sessions/<id>.jsonl`。
 
-**会话生命周期（v1）**：不做自动清理，文件只增不减；`~/.heluo-code/sessions/` 长期积累由用户手动管理。归档/过期策略（如 90 天无访问压缩归档）列为 P6 评估项。
+**会话生命周期（v1）**：不做自动清理，文件只增不减；内存中的事件数组与文件同源、同样只增不减（单会话万条事件量级的内存开销可接受）；`~/.heluo-code/sessions/` 长期积累由用户手动管理。归档/过期策略（如 90 天无访问压缩归档）列为 P6 评估项。
 
 **投影性能（实现约束）**：`deriveMessages()` 允许增量投影——缓存上一次投影结果，仅处理自该点以来的新增事件，不要求每次 step 全量重建。投影函数须为纯函数，便于重放与测试。
 
@@ -421,32 +421,40 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 ## 11. 分阶段实施计划
 
 > 每阶段以「验收标准」为完成定义（DoD）；测试随阶段交付（vitest）。
+> **验收纪律（P1 评审后确立）**：每条验收须可自动化断言，禁止仅 happy-path。必须显式覆盖三类路径——① 中断路径（`interrupt`/AbortSignal，含权限等待中、工具执行中）；② 边界路径（绝对路径越界、超长单消息、空输出步骤、未配置项）；③ 不变量断言（注入回灌、权限记忆跨步、上下文裁剪下限、工具列表稳定排序）。
 > 详细接口/工具/权限/配置见 `specs/` 下对应详规。
 
 ### P0 脚手架
 - workspace 两包骨架（core + cli；desktop 包骨架推迟至 P4）、TS(strict)+ESM+vitest 就绪
 - 接入 Cordis：核实 `@cordisjs/core` 最新包名/版本/Node20 ESM 兼容，锁定版本；跑通最小 Context 挂载示例
 - 配置加载插件（见 [specs/config.md](specs/config.md) 最小版）与 boot(profile) 入口
-- **验收**：`pnpm dev` 启动空 REPL；`pnpm test` 绿
+- **验收**：`pnpm dev` 启动空 REPL；`pnpm test` 绿；`@cordisjs/core` 版本已锁定且 core 内对 Cordis 类型做薄封装（R1）；`boot(profile, overrides?)` 两参数签名与各插件 `inject` 声明齐备（服务跨插件可见性已验证）
 
 ### P1 最小 agent loop ⭐（核心里程碑）
 - 范围：四个核心服务（session/llm/tools/agentLoop）、read_file+write_file、system-prompt 插件、CLI REPL、错误处理骨架（§5.6）、最小上下文窗口管理（§5.2）
 - 接口与类型见 [specs/interfaces.md](specs/interfaces.md)；LLM 归一化见同一文件
 - **mock LLM provider**（§4.3）：回放 `StreamChunk` 序列，作为集成/场景测试基座
-- **验收①**：CLI 中让 AI 读指定文件并正确总结（多轮对话保持上下文）
+- **验收①**：CLI 中让 AI 读指定文件并正确总结（多轮对话保持上下文）；未配置 `model` 时启动期有明确 `logger.warn` 而非仅运行期崩溃
 - **验收②**：DeepSeek 与 Qwen 各实测一轮 text + tool call 流式往返（R4 冒烟）
 - **验收③**：用 mock provider 跑通一次含工具调用的 turn，断言 `SessionEvent` 序列满足不变量（含错误路径单测）
+- **验收④（不变量，P1 评审整改，详见 `tmp/plans/p1-fixes.md`）**：以下每条均须有自动化断言，禁止仅 happy-path 覆盖
+  - `inject()` 写入内容在下一步模型请求中以 `system` 消息回灌（注入功能真实生效，非死代码）
+  - `read_file`/`write_file` 接受绝对路径时若 escape `cwd` 被拒绝（R8 软约束落地）
+  - 权限 `ask` 工具在**等待授权中**被 `interrupt`/`AbortSignal` 解除，turn 干净返回 `interrupted`、进程不挂起
+  - 上下文裁剪按总 token 超 `softCap` 触发（含单条超长消息），且保留 `keepLast` 下限
+  - 仅 `reasoning` 无文本无工具的步骤不产生空 `assistant` 消息污染上下文
+  - 工具列表 `tools` 按名称固定排序（R4）
 
 ### P2 工具集补全 + 权限系统
 - 补全 6 个工具（[specs/tools.md](specs/tools.md) 全量行为）；`tools/pre-execute` 瀑布链 + permissions 插件（[specs/permissions.md](specs/permissions.md)）
 - Windows shell 实测定稿（PowerShell 参数、conda/git-bash 场景）
 - 优雅退出（§5.8）：退出流程 + 日志闭合，强中断不留僵尸进程
-- **验收**：AI 独立完成「新建脚本→运行→读报错→修复→再运行通过」闭环；全程权限询问/always 记忆正确；强中断/退出不留僵尸进程、日志状态自洽可 resume
+- **验收**：AI 独立完成「新建脚本→运行→读报错→修复→再运行通过」闭环；全程权限询问/`always` 记忆跨步正确（同 session 内同一工具 `always` 后不再弹确认）；`ask`/`agent`/`quest` 三级语义与 `specs/permissions.md` 模式表一致（Quest 对 `ask` 工具自动放行，Ask/Agent 等价）；强中断/退出（含**权限等待中** Ctrl+C）不留僵尸进程、日志状态自洽可 resume
 
 ### P3 插件生态化
 - 外部插件加载（npm 包名/本地路径，插件形态见 §5.5）；示范插件 `plugin-web-fetch` 按 seam 三角色组织
 - provider 注册制完善：新增 provider 零核心改动
-- **验收**：不改 core 一行代码接入 web-fetch 插件并被模型调用；插件卸载（dispose）无残留监听
+- **验收**：不改 core 一行代码接入 web-fetch 插件并被模型调用；插件卸载（dispose）无残留监听（waterfall 钩子、事件订阅全部反注册）；外部插件与内置插件在 `tools/pre-execute` 链路上共存不互相覆盖（§8.2）
 
 ### P4 Electron 桌面壳（拆为 P4a / P4b）
 - 全文客户端详规（§10.2 进程模型/功能清单/IPC）将于 P4 启动时外置至 `specs/desktop.md`
@@ -454,19 +462,19 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
   - main/preload/renderer 三层（§10.2 进程模型与安全基线）
   - Op/EventMsg 协议落地；renderer 刷新状态重同步
   - 聊天主区流式渲染 + 基础权限卡片（allow/deny/always）
-  - **验收**：脱离 CLI，在 GUI 完成 P2 同款闭环任务（含权限卡片、中断）
+  - **验收**：脱离 CLI，在 GUI 完成 P2 同款闭环任务（含权限卡片、中断）；权限卡片 `allow`/`deny`/`always` 三态与 `waiting-permission` 状态机一致，中断 GUI 任务时 `agentLoop.interrupt` 解挂且不残留 pending 卡片
 - **P4b 增强体验**
   - diff 视图、reasoning 折叠块、token 角标
   - 设置页（provider/model/API Key）、会话侧栏、Ask/Agent/Quest 模式切换
-  - **验收**：完整覆盖 §10.2 功能清单；三级模式切换 + diff 展示 + 多会话切换
+  - **验收**：完整覆盖 §10.2 功能清单；三级模式切换（Ask/Agent/Quest）即时生效且各自语义符合 `specs/permissions.md`；diff 展示 + 多会话切换状态自洽（切换会话不串事件）
 
 ### P5 多 agent 编排
 - agents 服务扩展 factory/create/dispose；spawn_subagent 工具 + 独立会话 + 摘要回传；并发上限 4
 - 编排详设（§5.4 详设 + 看板 UI）将于 P5 启动时外置至 `specs/orchestration.md`
-- **验收**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论；看板实时反映状态流转
+- **验收**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论；看板实时反映状态流转；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染；父 Quest 时子 agent 权限继承规则明确（Q5 关闭）
 
 ### P6 产品化（持续迭代池，按优先级排序）
-0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
+0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束（注：P1 已在工具层交付 `read_file`/`write_file` 的 cwd 软约束，绝对路径 escape 即拒绝，此处升级为 OS 强制，二者不互斥）。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
 1. resume/fork/replay（基于日志派生，预期低成本）+ 会话标题生成
 2. 上下文压缩：compaction 作为可替换能力（接口 + 朴素摘要默认实现），防「摘要的摘要」递归劣化
 3. MCP 接入（stdio transport 优先，工具同构转换）
@@ -529,6 +537,6 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 | Q4 | reasoning 内容（DeepSeek-R 类）进日志的体积策略（全量保真 vs 采样） | P6 |
 | Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | P5 |
 | Q6 | token 计数在非 OpenAI 网关上的口径统一（AI SDK usage 直传 vs 本地估算） | P6 |
-| Q7 | AI SDK 版本偏差：规格写 v5，P0 核实时 npm latest 为 v7.0.83，`stream()` 等归一化 API 可能变动 | P1 启动前 |
+| Q7 | AI SDK 版本：规格写 v5，P0 核实时 npm latest 为 v7.0.83，P1 已确认采用 v7（`ai@^7` + `@ai-sdk/openai-compatible@^3`） | 已关闭（P1 实施） |
 
 

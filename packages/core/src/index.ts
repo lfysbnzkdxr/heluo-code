@@ -1,7 +1,17 @@
 import { configPlugin } from './plugins/config'
 import type { ConfigPluginOptions } from './plugins/config'
 import { createContext, shutdown, type Context as HeluoContext } from './context'
-import type { DeepPartial, Profile, Config } from './shared/types'
+import type { DeepPartial, Profile } from './shared/types'
+import type { Config } from './plugins/config/schema'
+import { sessionPlugin } from './services/session'
+import { llmPlugin } from './services/llm'
+import { toolsPlugin } from './services/tools'
+import { agentLoopPlugin } from './services/loop'
+import { systemPromptPlugin } from './plugins/system-prompt'
+import { permissionsPlugin } from './plugins/permissions'
+import { toolsFsPlugin } from './plugins/tools-fs'
+import { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
+import { llmMockPlugin } from './plugins/llm-mock'
 
 export interface BootResult {
   ctx: HeluoContext
@@ -12,6 +22,15 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
   const ctx = createContext()
   const options: ConfigPluginOptions = { profile, overrides }
   await ctx.plugin(configPlugin, options)
+  await ctx.plugin(sessionPlugin)
+  await ctx.plugin(llmPlugin)
+  await ctx.plugin(toolsPlugin)
+  await ctx.plugin(systemPromptPlugin)
+  await ctx.plugin(permissionsPlugin)
+  await ctx.plugin(toolsFsPlugin)
+  await ctx.plugin(llmOpenAICompatiblePlugin)
+  await ctx.plugin(llmMockPlugin)
+  await ctx.plugin(agentLoopPlugin)
   return {
     ctx,
     shutdown: () => shutdown(ctx),
@@ -20,7 +39,18 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
 
 export { createContext } from './context'
 export type { Context } from './context'
-export { configPlugin, buildConfig } from './plugins/config'
+export { configPlugin, buildConfig, assertGlobalOnly } from './plugins/config'
 export type { ConfigService } from './plugins/config'
+export { sessionPlugin } from './services/session'
+export { llmPlugin } from './services/llm'
+export { toolsPlugin } from './services/tools'
+export { agentLoopPlugin } from './services/loop'
+export type { AgentLoopService, TurnResult } from './services/loop'
+export { systemPromptPlugin } from './plugins/system-prompt'
+export { permissionsPlugin } from './plugins/permissions'
+export { toolsFsPlugin } from './plugins/tools-fs'
+export { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
+export { llmMockPlugin, registerMockScript } from './plugins/llm-mock'
+export type { SessionEvent, SessionEventMap, TokenUsage } from './shared/events'
 export * from './shared/types'
-export { HeluoError, ConfigError } from './shared/error'
+export { HeluoError, ConfigError, LlmError } from './shared/error'

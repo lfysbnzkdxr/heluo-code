@@ -7,6 +7,7 @@ export const providerConfigSchema = z.object({
   baseURL: z.string().optional(),
   models: z.array(z.string()).optional(),
   apiKeyEnv: z.string().optional(),
+  contextWindow: z.number().int().positive().optional(),
 })
 
 export const configSchema = z.object({
@@ -28,6 +29,10 @@ export const configSchema = z.object({
   }),
 })
 
+export type ProviderConfig = z.infer<typeof providerConfigSchema>
+
+export type Config = z.infer<typeof configSchema>
+
 export const defaultConfig = {
   model: '',
   providers: {},
@@ -42,8 +47,6 @@ export const defaultConfig = {
     outputTruncateTail: 500,
   },
 }
-
-export type Config = z.infer<typeof configSchema>
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
