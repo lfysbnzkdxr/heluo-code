@@ -1,4 +1,4 @@
-import type { SessionEvent, SessionEventMap, SessionEventType } from '../../shared/events'
+import type { FileDiff, SessionEvent, SessionEventMap, SessionEventType } from '../../shared/events'
 
 export type JsonSchema = Record<string, unknown>
 
@@ -7,6 +7,7 @@ export type PermissionPolicy = 'allow' | 'ask'
 export interface ToolResult {
   ok: true
   outputForModel: string
+  diff?: FileDiff
 }
 
 export interface ToolErrorResult {

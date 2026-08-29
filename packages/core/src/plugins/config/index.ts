@@ -15,6 +15,7 @@ import {
 
 export interface ConfigService {
   get(): Config
+  update(patch: DeepPartial<Config>): void
 }
 
 export interface ConfigPluginOptions {
@@ -59,7 +60,19 @@ export function buildConfig(profile: Profile, overrides?: DeepPartial<Config>): 
 }
 
 export function configPlugin(ctx: Context, options: ConfigPluginOptions): void {
-  const config = buildConfig(options.profile, options.overrides)
+  let config = buildConfig(options.profile, options.overrides)
   if (!config.model) logger.warn('model 未配置：LLM 调用将失败，请在全局配置设置 model')
-  ctx.root.provide('config', { get: () => config } satisfies ConfigService)
+  ctx.root.provide('config', {
+    get: () => config,
+    // 内存级运行时更新（如桌面端模式切换）：不落盘 config.jsonc，
+    // 作用于后续读取（permissions 每次 pre-execute 实时读 mode，即「即时生效、不追溯」）。
+    update(patch: DeepPartial<Config>) {
+      const merged = mergeConfig(config, patch)
+      const result = configSchema.safeParse(merged)
+      if (!result.success) {
+        throw new ConfigError(`invalid configuration patch: ${formatZodError(result.error)}`)
+      }
+      config = result.data
+    },
+  } satisfies ConfigService)
 }

@@ -118,11 +118,21 @@ function writeFileTool(): ToolDefinition {
       if (!withinCwd(tctx.cwd, abs)) {
         return { ok: false, errorForModel: `write_file: 拒绝写入 cwd 之外路径：${path}` }
       }
+      let before = ''
+      try {
+        before = readFileSync(abs, 'utf8')
+      } catch {
+        /* 文件不存在或不可读：新建场景，before 为空 */
+      }
       try {
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, content, 'utf8')
         const rel = relative(tctx.cwd, abs)
-        return { ok: true, outputForModel: `已写入 ${Buffer.byteLength(content, 'utf8')} 字节至 ${rel || abs}（UTF-8）` }
+        return {
+          ok: true,
+          outputForModel: `已写入 ${Buffer.byteLength(content, 'utf8')} 字节至 ${rel || abs}（UTF-8）`,
+          diff: { path: rel || abs, before, after: content },
+        }
       } catch (error) {
         return { ok: false, errorForModel: `write_file: 写入失败 ${error instanceof Error ? error.message : String(error)}` }
       }
@@ -191,7 +201,11 @@ function editFileTool(ctx: Context, readMemory: Map<string, Set<string>>): ToolD
       try {
         writeFileSync(abs, updated, 'utf8')
         const rel = relative(tctx.cwd, abs)
-        return { ok: true, outputForModel: `已替换 ${count} 处至 ${rel || abs}` }
+        return {
+          ok: true,
+          outputForModel: `已替换 ${count} 处至 ${rel || abs}`,
+          diff: { path: rel || abs, before: raw, after: updated },
+        }
       } catch (error) {
         return { ok: false, errorForModel: `edit_file: 写入失败 ${error instanceof Error ? error.message : String(error)}` }
       }

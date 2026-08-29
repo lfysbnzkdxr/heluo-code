@@ -1,0 +1,20 @@
+appId: com.heluo.code
+productName: heluo-code
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+asar: true
+win:
+  target:
+    - nsis
+  artifactName: heluo-code-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: heluo-code
+  createDesktopShortcut: true
+electronLanguages:
+  - zh-CN
+  - en-US

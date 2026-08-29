@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.4 ｜ 日期：2026-08-29 ｜ 状态：P4a 已实施（Electron 桌面壳最小可用 GUI：聊天流式 + 权限卡片三态 + 中断 + cwd 选择；vitest 102 全绿 + e2e 4 用例全绿 + 真测冒烟通过）
+> 版本：v1.5 ｜ 日期：2026-08-29 ｜ 状态：P4 已实施（桌面增强体验：diff 视图 / reasoning 折叠 / token 角标 / 工具实时输出流 / 设置页 / 会话侧栏多会话 / 模式切换 / electron-builder 打包；vitest 125 全绿 + e2e 7 用例全绿 + 打包冒烟通过）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -406,6 +406,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 
 - IPC 协议 = specs/interfaces.md 的 Op/EventMsg（Op 走 `heluo:op` send、EventMsg 走 `heluo:event` send、快照/目录选择走 invoke）；EventMsg 按 sessionId 分发；renderer 刷新时先快照全量重放会话日志再订阅增量（状态重同步）
 - **P4a 已实施（2026-08-29）**：聊天主区流式渲染（纯文本）、权限卡片三态（allow/deny/always + waiting-permission 状态机）、中断按钮、cwd 选择；验收三连（GUI 闭环 / 权限三态 / 中断无残留）由 Playwright Electron e2e 4 用例断言，真测冒烟（DeepSeek 真实模型）通过
+- **P4b 已实施（2026-08-29）**：diff 视图（core 结构化 diff + 行级渲染）、reasoning 折叠块、token 角标、工具实时输出流（tool/stream）、设置页（provider/model/API Key 写 credentials.json）、会话侧栏（多会话、会话绑定 cwd、切换保留历史、事件不串）、Ask/Agent/Quest 模式切换（config.update 内存级即时生效）、electron-builder Windows 打包（asar + NSIS，产物自包含冒烟通过）；验收由 vitest 125 + e2e 7 用例断言（详见 specs/desktop.md §10.2.7/10.2.8）
 - **P4b 待实施**：diff 视图、reasoning 折叠块、token 角标、设置页、会话侧栏（多会话）、Ask/Agent/Quest 模式切换
 - **打包**：electron-builder；Windows 优先（开发环境 win32），mac/linux 目标列 P6
 
@@ -469,7 +470,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
   - 测试 89 全绿（新增 12 条：验收①—⑤ + 失败不崩溃 + 插件形态直挂 + web_fetch 行为 5 条），详见 `tmp/plans/p3-plugins.md`
 - **偏差记录**：tools-fs / tools-shell / system-prompt 等内置插件注册仍为直接调用（assume 应用常驻），未全部改接 effect——热启停内置插件不在 P3 范围，P5（子 agent 生命周期）前评估统一；`plugins` 暂不支持给外部插件传配置（`{ name, config }` 对象形式），需要时再扩
 
-### P4 Electron 桌面壳（P4a ✅ 已实施 / P4b 待实施）
+### P4 Electron 桌面壳（P4 ✅ 已实施）
 
 > 客户端详规已外置至 [specs/desktop.md](specs/desktop.md)（§10.2 落地版：进程模型/IPC/安全基线/验收对照）。
 
@@ -484,10 +485,15 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 - **真测冒烟（2026-08-29，DeepSeek V4 Flash）**：GUI 真实模型完成「写 script.js → 运行 → 输出 Hello, heluo!」，工具序列 list_dir→write_file→run_command，权限卡片 2 次确认真实走通，turn completed（151 事件全程流转）
 - **偏差记录**：① 初始 cwd 若仅靠事件广播存在竞态（renderer 订阅晚于 main 广播），快照并入 cwd 字段解决；② 会话 cwd 曾误用 process.cwd()（Electron 启动目录），改为显式传入解析后的工作目录；③ mock step 脚本按会话内 tool 消息总数索引、跨 turn 累计——e2e 中断用例第二次提交按 mock 语义断言 turn 正常完成而非再次弹卡；④ vitest 4 已弃用 workspace 文件，迁移至 root `vitest.config.ts` 的 `test.projects`（desktop 以配置文件引用限定 `src/**/*.test.ts`，避免捡起 Playwright spec）
 
-**P4b 增强体验（待实施）**
-- diff 视图、reasoning 折叠块、token 角标
-- 设置页（provider/model/API Key 写 credentials.json）、会话侧栏（多会话）、Ask/Agent/Quest 模式切换
-- **验收**：完整覆盖 §10.2 功能清单；三级模式切换（Ask/Agent/Quest）即时生效且各自语义符合 `specs/permissions.md`；diff 展示 + 多会话切换状态自洽（切换会话不串事件）
+**P4b 增强体验 ✅（已实施 2026-08-29）**
+- diff 视图（core 结构化 diff：`ToolOutcome.diff`/`tool/result.diff`，write/edit 产出 before/after，模型摘要文本不变；renderer DiffView 行级渲染无第三方库）
+- reasoning 折叠块（`reasoning/chunk` 按 stepId 累积，挂对应消息前默认收起）、token 角标（`turn/end.usage`）、工具卡片实时输出流（`tool/stream` 累积，result 为准）
+- 设置页（provider/model 经 config-set 更新；API Key 经 credentials-set 交 main 写 `~/.heluo-code/credentials.json` 0600——renderer 不持有 key）；**core 补齐凭据回退读取**（`loadApiKey`：apiKeyEnv env > credentials.json，闭合 config.md 声明与实现缺口）
+- 会话侧栏（多会话）：bridge 单会话 → Map + active 切换；会话绑定 cwd、切换保留历史；事件仅转发 active 会话（切换不串事件）；快照携带 sessions 列表
+- Ask/Agent/Quest 模式切换：core `config.update`（内存级，非法 patch 拒绝）+ permissions 实时读 mode——**即时生效、不追溯**（specs/permissions.md §8.3）
+- electron-builder Windows 打包：asar + NSIS（appId com.heluo.code）；core 已 bundle 进 main 产物（externalize 排除），运行时依赖（ai/@cordisjs/core/zod 等）收集进 asar；`pnpm --filter @heluo-code/desktop package` 产出 setup.exe，win-unpacked 冒烟通过（Playwright 启动完整 turn）
+- **验收（全部自动化断言）**：vitest 125 全绿（新增 23 条：reducer reasoning/token/stream/diff、diffLines 算法、config.update 即时生效、loadApiKey 回退链、bridge 多会话/配置/凭据）+ e2e 7 用例（新增 diff 展示、模式切换即时生效、多会话切换不串事件）+ typecheck 全绿 + 打包产物冒烟
+- **偏差记录**：① e2e 新增脚本（simple/diff/mode）沿用 mock 机制，edit_file 脚本需先 read（editRequiresRead 软约束在 mock 场景同样生效）；② 模式切换按钮不再随 turn busy 禁用（等待授权中切换正是「即时生效」验收场景）；③ `release/` 打包产物加入 .gitignore；④ Windows Defender 对仓库内 `release/` 实时扫描可能引发 EBUSY（打包偶发失败），输出到系统 temp 目录可规避——本机开发已知环境问题，非工程缺陷
 
 ### P5 多 agent 编排
 - agents 服务扩展 factory/create/dispose；spawn_subagent 工具 + 独立会话 + 摘要回传；并发上限 4

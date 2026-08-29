@@ -168,6 +168,7 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
               output: result.ok ? result.outputForModel : result.errorForModel,
               isError: !result.ok,
               durationMs: Date.now() - started,
+              diff: result.ok ? result.diff : undefined,
             })
           }
           session.append('step/end', { stepId })

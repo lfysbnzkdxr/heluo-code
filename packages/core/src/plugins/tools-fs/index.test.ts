@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createContext } from '../../context'
-import type { ToolContext, ToolOutcome } from '../../services/tools/types'
+import type { ToolContext, ToolOutcome, ToolResult } from '../../services/tools/types'
 import { toolsPlugin } from '../../services/tools'
 import { toolsFsPlugin } from './index'
 
@@ -81,6 +81,18 @@ describe('tools-fs', () => {
     const out = (await tool.execute({ path: 'sub/c.txt', content: 'hello' }, tctx())) as ToolOutcome
     expect(out.ok).toBe(true)
     expect(readFileSync(join(cwd, 'sub/c.txt'), 'utf8')).toBe('hello')
+    expect((out as ToolResult).diff).toEqual({ path: join('sub', 'c.txt'), before: '', after: 'hello' })
+  })
+
+  it('write_file 覆写已存在文件时 diff.before 为旧内容', async () => {
+    const ctx = makeCtx()
+    toolsFsPlugin(ctx)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(cwd, 'old.txt'), 'v1')
+    const tool = ctx.tools!.get('write_file')!
+    const out = (await tool.execute({ path: 'old.txt', content: 'v2' }, tctx())) as ToolOutcome
+    expect(out.ok).toBe(true)
+    expect((out as ToolResult).diff).toEqual({ path: 'old.txt', before: 'v1', after: 'v2' })
   })
 
   it('read_file 拒绝读取 cwd 之外绝对路径', async () => {
@@ -157,6 +169,7 @@ describe('tools-fs', () => {
     const out = (await edit.execute({ path: 'e.txt', old_string: 'bar', new_string: 'BAZ' }, tctx())) as ToolOutcome
     expect(out.ok).toBe(true)
     expect(readFileSync(join(cwd, 'e.txt'), 'utf8')).toBe('foo BAZ foo')
+    expect((out as ToolResult).diff).toEqual({ path: 'e.txt', before: 'foo bar foo', after: 'foo BAZ foo' })
   })
 
   it('edit_file 未先 read 被软约束拒绝', async () => {
