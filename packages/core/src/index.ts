@@ -7,6 +7,7 @@ import { sessionPlugin } from './services/session'
 import { llmPlugin } from './services/llm'
 import { toolsPlugin } from './services/tools'
 import { agentLoopPlugin } from './services/loop'
+import { agentsPlugin } from './services/agents'
 import { systemPromptPlugin } from './plugins/system-prompt'
 import { permissionsPlugin } from './plugins/permissions'
 import { toolsFsPlugin } from './plugins/tools-fs'
@@ -14,6 +15,7 @@ import { toolsShellPlugin } from './plugins/tools-shell'
 import { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
 import { llmMockPlugin } from './plugins/llm-mock'
 import { pluginLoaderPlugin } from './plugins/plugin-loader'
+import { toolsSpawnPlugin } from './plugins/tools-spawn'
 
 export interface BootResult {
   ctx: HeluoContext
@@ -34,6 +36,8 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
   await ctx.plugin(llmOpenAICompatiblePlugin)
   await ctx.plugin(llmMockPlugin)
   await ctx.plugin(agentLoopPlugin)
+  await ctx.plugin(agentsPlugin)
+  await ctx.plugin(toolsSpawnPlugin)
   await ctx.plugin(pluginLoaderPlugin, { profile })
   return {
     ctx,
@@ -51,6 +55,9 @@ export { llmPlugin } from './services/llm'
 export { toolsPlugin } from './services/tools'
 export { agentLoopPlugin } from './services/loop'
 export type { AgentLoopService, TurnResult } from './services/loop'
+export { agentsPlugin, explorerDefinition } from './services/agents'
+export type { AgentService, AgentHandle, AgentDefinition, AgentFactory, AgentStatus, CreateAgentOptions } from './services/agents'
+export { toolsSpawnPlugin } from './plugins/tools-spawn'
 export { systemPromptPlugin } from './plugins/system-prompt'
 export { permissionsPlugin } from './plugins/permissions'
 export { toolsFsPlugin } from './plugins/tools-fs'

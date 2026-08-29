@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.5 ｜ 日期：2026-08-29 ｜ 状态：P4 已实施（桌面增强体验：diff 视图 / reasoning 折叠 / token 角标 / 工具实时输出流 / 设置页 / 会话侧栏多会话 / 模式切换 / electron-builder 打包；vitest 125 全绿 + e2e 7 用例全绿 + 打包冒烟通过）
+> 版本：v1.6 ｜ 日期：2026-08-30 ｜ 状态：P5a 已实施（多 agent 编排核心：agents 服务 + spawn_subagent + Q5 权限继承；vitest 137 全绿 + e2e 7 用例全绿 + typecheck 全绿）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -303,6 +303,8 @@ interface SessionEventMap {
 
 ### 5.4 Agent 与子 agent（P5 生效，接口先行）
 
+> P5a 已实施（2026-08-30）：agents 服务（factory/definition/create/get/list/dispose/onStatusChange + 并发上限默认 4 排队）、spawn_subagent 工具（独立会话 + 工具白名单 + 摘要回传）、Q5 权限继承（子 agent 模式 = 父会话快照，记忆隔离）、内置 explorer 预定义 agent；详设见 [`specs/orchestration.md`](specs/orchestration.md)。
+
 - `AgentDefinition`：声明 id、systemPrompt、工具白名单、模型偏好、权限模式。内置插件可贡献预定义 agent（如后续的 explorer/coder/reviewer 角色）。
 - 主 agent 通过 `spawn_subagent` 工具创建子 agent：子 agent 拥有**独立会话日志**与受限工具集，完成后仅将摘要回传主会话（上下文隔离，防污染）。
 - 子 agent 创建走 seam：`ctx.agents` 为契约，默认 Provider「新建本进程子 agent」，未来可替换为「委派给外部产品」（dsh 设计预留）。
@@ -496,9 +498,11 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 - **偏差记录**：① e2e 新增脚本（simple/diff/mode）沿用 mock 机制，edit_file 脚本需先 read（editRequiresRead 软约束在 mock 场景同样生效）；② 模式切换按钮不再随 turn busy 禁用（等待授权中切换正是「即时生效」验收场景）；③ `release/` 打包产物加入 .gitignore；④ Windows Defender 对仓库内 `release/` 实时扫描可能引发 EBUSY（打包偶发失败），输出到系统 temp 目录可规避——本机开发已知环境问题，非工程缺陷
 
 ### P5 多 agent 编排
-- agents 服务扩展 factory/create/dispose；spawn_subagent 工具 + 独立会话 + 摘要回传；并发上限 4
-- 编排详设（§5.4 详设 + 看板 UI）将于 P5 启动时外置至 `specs/orchestration.md`
-- **验收**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论；看板实时反映状态流转；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染；父 Quest 时子 agent 权限继承规则明确（Q5 关闭）
+- **P5a 已实施**（2026-08-30）：agents 服务（setFactory/registerDefinition/create/get/list/dispose/onStatusChange，默认 factory「本进程子 agent」）；AgentDefinition（systemPrompt/工具白名单/模型偏好/权限模式）+ 内置 explorer 预定义 agent；spawn_subagent 工具（独立会话 + 白名单拒绝 + 摘要回传，主会话落 subagent/spawn|finished 编排事件）；并发上限默认 4 FIFO 排队（`config.agents.maxConcurrency`），排队中可 interrupt；Q5 权限继承（子 agent 模式 = spawn 时父会话快照，permissions 按 session 覆盖表，always 记忆天然按会话隔离）；父 turn 中断级联；详见 specs/orchestration.md
+- **验收（P5a 全部自动化断言）**：vitest 137 全绿（新增 12 条：并行派发 2 子 agent 汇总+上下文隔离、并发并行/排队/排队取消、Q5 继承+记忆隔离、白名单拒绝、中断级联、dispose 无残留、参数校验、评审整改：sessionMode 清理 + send 窗口期缓冲）+ typecheck 全绿
+- **P5b（后续）**：看板 UI（agents-status/subagent 事件桥接 renderer + 状态流转卡片 + 摘要展示 + e2e）
+- 编排详设已外置至 `specs/orchestration.md`（含看板 UI 契约）
+- **验收（全量）**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论（P5a ✓）；看板实时反映状态流转（P5b）；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染（P5a ✓）；父 Quest 时子 agent 权限继承规则明确（Q5 已关闭：快照继承 + 记忆隔离）
 
 ### P6 产品化（持续迭代池，按优先级排序）
 0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束（注：P1 已在工具层交付 `read_file`/`write_file` 的 cwd 软约束，绝对路径 escape 即拒绝，此处升级为 OS 强制，二者不互斥）。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
@@ -563,7 +567,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 | Q2 | run_command 最终执行器选型（PowerShell 启动开销 vs cmd 兼容性；是否探测 git-bash） | 已关闭（P2 实施：`powershell.exe -NoProfile -NonInteractive -Command` + UTF-8 前缀 + taskkill 进程树，实测结论见 tools.md §7.6） |
 | Q3 | 会话存储 JSONL 是否满足 fork/replay 性能（万条事件级），何时迁 SQLite | P6 前 |
 | Q4 | reasoning 内容（DeepSeek-R 类）进日志的体积策略（全量保真 vs 采样） | P6 |
-| Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | P5 |
+| Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | 已关闭（P5a：spawn 时父会话模式快照 + 按 session 覆盖 + always 记忆隔离，见 specs/orchestration.md §5） |
 | Q6 | token 计数在非 OpenAI 网关上的口径统一（AI SDK usage 直传 vs 本地估算） | P6 |
 | Q7 | AI SDK 版本：规格写 v5，P0 核实时 npm latest 为 v7.0.83，P1 已确认采用 v7（`ai@^7` + `@ai-sdk/openai-compatible@^3`） | 已关闭（P1 实施） |
 

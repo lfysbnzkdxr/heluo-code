@@ -12,6 +12,9 @@ export interface PermissionRequest {
 export interface PermissionService {
   respond(requestId: string, decision: 'allow' | 'deny' | 'always'): void
   onRequest(cb: (req: PermissionRequest) => void): () => void
+  setSessionMode(sessionId: string, mode: 'ask' | 'agent' | 'quest'): void
+  getEffectiveMode(sessionId: string | undefined): 'ask' | 'agent' | 'quest'
+  clearSessionMode(sessionId: string): void
 }
 
 function summarize(args: unknown): string {
@@ -22,6 +25,8 @@ function summarize(args: unknown): string {
 export function permissionsPlugin(ctx: Context): void {
   const pending = new Map<string, { resolve: (d: 'allow' | 'deny' | 'always') => void; session: SessionHandle }>()
   const listeners = new Set<(req: PermissionRequest) => void>()
+  // Q5（P5）：子 agent 权限模式 = 创建时父会话模式快照，按 session 覆盖；无覆盖回落 config.permission.mode
+  const sessionModes = new Map<string, 'ask' | 'agent' | 'quest'>()
 
   const service: PermissionService = {
     respond(requestId, decision) {
@@ -33,6 +38,16 @@ export function permissionsPlugin(ctx: Context): void {
     onRequest(cb) {
       listeners.add(cb)
       return () => listeners.delete(cb)
+    },
+    setSessionMode(sessionId, mode) {
+      sessionModes.set(sessionId, mode)
+    },
+    getEffectiveMode(sessionId) {
+      const mode = sessionId ? sessionModes.get(sessionId) : undefined
+      return mode ?? ctx.root.config?.get()?.permission.mode ?? 'agent'
+    },
+    clearSessionMode(sessionId) {
+      sessionModes.delete(sessionId)
     },
   }
   ctx.root.provide('permissions', service)
@@ -55,7 +70,7 @@ export function permissionsPlugin(ctx: Context): void {
       const policy = ctx.root.tools!.get(tool)?.permission
       if (policy !== 'ask') return 'allow'
       const config = ctx.root.config?.get()
-      const mode = config?.permission.mode
+      const mode = service.getEffectiveMode(tctx.session.id)
       if (mode === 'quest') {
         // Quest 对 ask 工具自动放行；run_command 按 questRunCommand 配置（默认 ask）
         if (tool !== 'run_command' || config?.permission.questRunCommand === 'allow') return 'allow'

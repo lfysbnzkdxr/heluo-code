@@ -57,26 +57,53 @@ type StreamChunk =
   | { type: 'done' }
 
 // ================= Agent =================
+// P5a 已实施（详设见 specs/orchestration.md）；默认 factory 为「本进程子 agent」，
+// 亦支持 setFactory 替换（未来委派外部产品，dsh 设计预留）。
 interface AgentService {
   setFactory(f: AgentFactory): () => void
+  registerDefinition(def: AgentDefinition): () => void
+  getDefinition(id: string): AgentDefinition | undefined
   create(opts: CreateAgentOptions): Promise<AgentHandle>
-  get(id: string): AgentHandle
+  get(id: string): AgentHandle | undefined
   list(): AgentHandle[]
+  dispose(agentId: string): Promise<void>
+  onStatusChange(cb: (handle: AgentHandle) => void): () => void   // 看板数据源（P5b）
+}
+
+interface AgentDefinition {
+  id: string                        // 唯一 id，供 spawn_subagent 引用
+  systemPrompt: string              // 子 agent 专属 system prompt
+  tools?: string[]                  // 工具白名单；缺省 = 全部
+  model?: string                    // 模型偏好；缺省继承父配置
+  permissionMode?: 'ask' | 'agent' | 'quest'   // 权限模式覆盖；缺省 = 父会话模式快照（Q5）
 }
 
 interface CreateAgentOptions {
   definitionId?: string              // 引用预定义 agent；否则 inline 配置
   task: string
   parentSessionId?: string           // 子 agent 场景
+  signal?: AbortSignal               // 父 turn 中断级联
 }
 
 interface AgentHandle {
   id: string
-  status: 'idle' | 'running' | 'waiting-permission' | 'done' | 'failed'
-  send(text: string): void
+  definitionId?: string
+  task: string
+  parentSessionId?: string
+  sessionId: string                  // 子 agent 独立会话
+  status: 'idle' | 'running' | 'waiting-permission' | 'done' | 'failed'   // 排队中为 idle
+  summary?: string                   // 完成摘要（最后一条非空 assistant/message）
+  error?: string                     // failed 原因
+  send(text: string): void           // v1 语义：注入上下文，不新开 turn
   interrupt(): void
+  waitDone(): Promise<void>          // resolve 于 done/failed
   dispose(): Promise<void>
 }
+
+// spawn_subagent 工具（P5a，permission: 'allow'）：
+//   task: string（必填）、definitionId?: string
+//   阻塞等待子 agent 完成，tool/result 返回 [subagent <id> 完成]/状态/摘要；
+//   主会话日志落 subagent/spawn 与 subagent/finished 编排事件（derive 投影忽略，防上下文污染）。
 
 // ================= 客户端协议（codex 双队列借鉴）=================
 // renderer/CLI → core

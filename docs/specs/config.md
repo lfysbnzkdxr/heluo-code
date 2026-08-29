@@ -43,6 +43,7 @@ CLI 参数  >  <project>/.heluo-code/config.jsonc  >  ~/.heluo-code/config.jsonc
     "questRunCommand": "ask"             // 可选；Quest 模式下 run_command 策略：ask（默认，仍逐条询问）| allow（放行）
   },
   "loop": { "maxStepsPerTurn": 40 },
+  "agents": { "maxConcurrency": 4 },           // P5 起生效：子 agent 并发上限（默认 4，超出 FIFO 排队）
   "rules": ["./AGENTS.md"],                        // 附加指令文件路径（数组）；v1 默认已自动发现项目根 AGENTS.md 与全局 ~/.heluo-code/AGENTS.md，此字段为额外引入/覆盖；单文件上限 32 KiB
   "tools": {
     "exclude": [],                       // list_dir/grep_search 的额外排除目录名（默认排除 .git/node_modules/dist）

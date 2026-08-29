@@ -5,6 +5,7 @@ import type { SessionService } from './services/session'
 import type { LlmService } from './services/llm'
 import type { ToolService } from './services/tools'
 import type { AgentLoopService } from './services/loop'
+import type { AgentService } from './services/agents'
 import type { SystemPromptService } from './plugins/system-prompt'
 import type { PermissionService } from './plugins/permissions'
 
@@ -17,6 +18,7 @@ declare module '@cordisjs/core' {
     systemPrompt?: SystemPromptService
     permissions?: PermissionService
     agentLoop?: AgentLoopService
+    agents?: AgentService
   }
 }
 

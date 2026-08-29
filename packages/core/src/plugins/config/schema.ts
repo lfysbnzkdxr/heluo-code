@@ -21,6 +21,9 @@ export const configSchema = z.object({
   loop: z.object({
     maxStepsPerTurn: z.number().int().positive(),
   }),
+  agents: z.object({
+    maxConcurrency: z.number().int().positive(),
+  }),
   rules: z.array(z.string()),
   tools: z.object({
     exclude: z.array(z.string()),
@@ -42,6 +45,7 @@ export const defaultConfig = {
   plugins: [],
   permission: { mode: 'agent' as const, questRunCommand: 'ask' as const },
   loop: { maxStepsPerTurn: 40 },
+  agents: { maxConcurrency: 4 },
   rules: [],
   tools: {
     exclude: [],

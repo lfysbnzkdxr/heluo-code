@@ -132,6 +132,10 @@ export function reduceEvent(state: UiState, ev: SessionEvent): UiState {
     case 'step/start':
     case 'step/end':
       return state
+    case 'subagent/spawn':
+    case 'subagent/finished':
+      // 编排域事件（P5）：看板 UI 于 P5b 消费，主区渲染暂忽略
+      return state
   }
 }
 

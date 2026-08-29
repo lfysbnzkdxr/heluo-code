@@ -19,6 +19,9 @@ export interface OpenTurnOptions {
   session: SessionStore
   text: string
   signal?: AbortSignal
+  systemPrompt?: string
+  toolAllowlist?: string[]
+  model?: string
 }
 
 export interface AgentLoopService {
@@ -59,7 +62,7 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
     hasActiveTurns() {
       return active.size > 0
     },
-    async openTurn({ session, text, signal }: OpenTurnOptions): Promise<TurnResult> {
+    async openTurn({ session, text, signal, systemPrompt, toolAllowlist, model }: OpenTurnOptions): Promise<TurnResult> {
       if (active.has(session.id)) {
         throw new SessionError('会话忙，请先中断当前任务')
       }
@@ -73,7 +76,7 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
 
       const config = ctx.root.config?.get()
       const maxSteps = config?.loop.maxStepsPerTurn ?? 40
-      const [adapterId, model] = splitModel(config?.model ?? '')
+      const [adapterId, modelName] = splitModel(model ?? config?.model ?? '')
       const providerConfig = config?.providers[adapterId]
       const contextWindow = providerConfig?.contextWindow ?? 32000
       const softCap = Math.floor(contextWindow * 0.9)
@@ -86,7 +89,7 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
       session.append('turn/start', { turnId })
       session.append('user/message', { text })
 
-      const system = ctx.root.systemPrompt?.getSystemPrompt(session.cwd) ?? ''
+      const system = systemPrompt ?? ctx.root.systemPrompt?.getSystemPrompt(session.cwd) ?? ''
 
       try {
         for (let step = 0; step < maxSteps; step++) {
@@ -103,11 +106,13 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
           const injectMsgs = injects.map(
             (t): ModelMessage => ({ role: 'system', content: `[注入上下文] ${t}` }),
           )
-          const tools: ToolSchema[] = ctx.root.tools!.getSchemaList()
+          const tools: ToolSchema[] = toolAllowlist
+            ? ctx.root.tools!.getSchemaList().filter((t) => toolAllowlist.includes(t.name))
+            : ctx.root.tools!.getSchemaList()
           const fullMessages: ModelMessage[] = system
             ? [{ role: 'system', content: system }, ...injectMsgs, ...messages]
             : [...injectMsgs, ...messages]
-          const req: ModelRequest = { adapterId, model, messages: fullMessages, tools, signal: mySignal }
+          const req: ModelRequest = { adapterId, model: modelName, messages: fullMessages, tools, signal: mySignal }
 
           let textAccum = ''
           let stepUsage: TokenUsage | undefined
@@ -151,17 +156,21 @@ export function createAgentLoop(ctx: Context): AgentLoopService {
           for (const tc of toolCalls) {
             const started = Date.now()
             let result: ToolOutcome
-            try {
-              const args = safeParse(tc.argsJson)
-              result = await ctx.root.tools!.execute(tc.name, args, {
-                cwd: session.cwd,
-                signal: mySignal,
-                session,
-                callId: tc.id,
-                inject: (t: string) => session.inject(t),
-              })
-            } catch (error) {
-              result = { ok: false, errorForModel: error instanceof Error ? error.message : String(error) }
+            if (toolAllowlist && !toolAllowlist.includes(tc.name)) {
+              result = { ok: false, errorForModel: `工具 ${tc.name} 不在该子 agent 可用工具集` }
+            } else {
+              try {
+                const args = safeParse(tc.argsJson)
+                result = await ctx.root.tools!.execute(tc.name, args, {
+                  cwd: session.cwd,
+                  signal: mySignal,
+                  session,
+                  callId: tc.id,
+                  inject: (t: string) => session.inject(t),
+                })
+              } catch (error) {
+                result = { ok: false, errorForModel: error instanceof Error ? error.message : String(error) }
+              }
             }
             session.append('tool/result', {
               callId: tc.id,

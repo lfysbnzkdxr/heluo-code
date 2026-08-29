@@ -26,6 +26,8 @@ export interface SessionEventMap {
   'turn/end': { turnId: string; stopReason: 'completed' | 'interrupted' | 'error'; usage?: TokenUsage }
   'step/start': { stepId: string }
   'step/end': { stepId: string }
+  'subagent/spawn': { agentId: string; task: string }
+  'subagent/finished': { agentId: string; summary: string }
 }
 
 export type SessionEventType = keyof SessionEventMap
