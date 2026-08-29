@@ -9,8 +9,11 @@
   },
   "scripts": {
     "dev": "pnpm --filter @heluo-code/cli dev",
+    "dev:desktop": "pnpm --filter @heluo-code/desktop dev",
+    "build:desktop": "pnpm --filter @heluo-code/desktop build",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit && tsc -p packages/plugin-web-fetch/tsconfig.json --noEmit"
+    "test:e2e": "pnpm build:desktop && pnpm --filter @heluo-code/desktop test:e2e",
+    "typecheck": "tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit && tsc -p packages/plugin-web-fetch/tsconfig.json --noEmit && tsc -p packages/desktop/tsconfig.node.json --noEmit && tsc -p packages/desktop/tsconfig.web.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

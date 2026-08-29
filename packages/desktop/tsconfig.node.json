@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "types": ["node"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "src/main",
+    "src/preload",
+    "src/shared",
+    "e2e"
+  ]
+}

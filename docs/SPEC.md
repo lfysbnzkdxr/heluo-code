@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.3 ｜ 日期：2026-08-29 ｜ 状态：P3 已实施（插件生态化：外部插件加载 + web-fetch 示范插件 + provider 注册制佐证；测试 89 全绿；评审整改已闭环）
+> 版本：v1.4 ｜ 日期：2026-08-29 ｜ 状态：P4a 已实施（Electron 桌面壳最小可用 GUI：聊天流式 + 权限卡片三态 + 中断 + cwd 选择；vitest 102 全绿 + e2e 4 用例全绿 + 真测冒烟通过）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -19,7 +19,7 @@
 7. [内置工具集（详规）](#7-内置工具集详规) → [specs/tools.md](specs/tools.md)
 8. [权限系统（详规）](#8-权限系统详规) → [specs/permissions.md](specs/permissions.md)
 9. [配置系统（详规）](#9-配置系统详规) → [specs/config.md](specs/config.md)
-10. [客户端规格](#10-客户端规格)
+10. [客户端规格](#10-客户端规格) → [specs/desktop.md](specs/desktop.md)（§10.2 详规，P4a 起外置）
 11. [分阶段实施计划](#11-分阶段实施计划)
 12. [成熟项目借鉴对照表](#12-成熟项目借鉴对照表)
 13. [风险与对策](#13-风险与对策)
@@ -387,7 +387,7 @@ agent 系统调试难度高（模型不确定 + 工具链长），需独立的�
 
 ## 10. 客户端规格
 
-> §10.2 完整客户端详规（进程模型 / IPC / 功能清单）将于 P4 启动时外置至 `specs/desktop.md`；当前保留于此作为总览。
+> §10.2 Desktop 完整客户端详规（进程模型 / IPC / 功能清单 / 验收对照）已外置至 [specs/desktop.md](specs/desktop.md)；当前保留 CLI 总览于此。
 
 ### 10.1 CLI（packages/cli，开发调试器定位）
 
@@ -396,30 +396,18 @@ agent 系统调试难度高（模型不确定 + 工具链长），需独立的�
 
 ### 10.2 Desktop（packages/desktop，P4 起的主交付物）
 
-**进程模型**
+> 进程模型 / IPC 协议 / 安全基线 / 功能清单 / 验收对照的完整详规见 [specs/desktop.md](specs/desktop.md)。摘要：
 
 ```
 main 进程：boot(core profile) → 持有唯一 Context → ipcMain 处理 Op → webContents.send 推 EventMsg
-preload：contextBridge 暴露白名单 API { submit(op), onEvent(cb) }，contextIsolation: true，nodeIntegration: false
+preload：contextBridge 暴露白名单 API { submit(op), onEvent(cb), getSnapshot(), pickCwd() }
 renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对象
 ```
 
-**IPC 协议**：即 [specs/interfaces.md](specs/interfaces.md) 的 Op/EventMsg；EventMsg 按 sessionId 分发；断线重连不需要（同进程），但需处理 renderer 刷新后的状态重同步（刷新时全量重放当前会话日志投影）。
-
-**功能清单（P4 验收范围）**
-
-| 功能 | 说明 |
-|---|---|
-| 会话侧栏 | 新建/切换会话，列表来自 sessions store |
-| 聊天主区 | Markdown 渲染、流式光标、reasoning 折叠块（DeepSeek R 类模型）、token 用量角标 |
-| 工具卡片 | 调用名+参数摘要+结果折叠；write/edit 展示 diff 视图 |
-| 权限卡片 | 阻塞式弹卡：参数详情 + allow/deny/always；对应 waiting-permission 状态 |
-| 模式切换 | Ask/Agent/Quest 顶栏三态开关 |
-| 中断 | 停止按钮发送 Op.interrupt |
-| 设置页 | provider/model 选择、API Key 录入（写 credentials.json） |
-| Quest 任务看板（P5 起） | 子任务列表、状态标签、产物查看（侧栏/独立 tab，非 P4 验收范围） |
-
-**打包**：electron-builder；Windows 优先（开发环境 win32），mac/linux 目标列 P6。
+- IPC 协议 = specs/interfaces.md 的 Op/EventMsg（Op 走 `heluo:op` send、EventMsg 走 `heluo:event` send、快照/目录选择走 invoke）；EventMsg 按 sessionId 分发；renderer 刷新时先快照全量重放会话日志再订阅增量（状态重同步）
+- **P4a 已实施（2026-08-29）**：聊天主区流式渲染（纯文本）、权限卡片三态（allow/deny/always + waiting-permission 状态机）、中断按钮、cwd 选择；验收三连（GUI 闭环 / 权限三态 / 中断无残留）由 Playwright Electron e2e 4 用例断言，真测冒烟（DeepSeek 真实模型）通过
+- **P4b 待实施**：diff 视图、reasoning 折叠块、token 角标、设置页、会话侧栏（多会话）、Ask/Agent/Quest 模式切换
+- **打包**：electron-builder；Windows 优先（开发环境 win32），mac/linux 目标列 P6
 
 ---
 
@@ -481,17 +469,25 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
   - 测试 89 全绿（新增 12 条：验收①—⑤ + 失败不崩溃 + 插件形态直挂 + web_fetch 行为 5 条），详见 `tmp/plans/p3-plugins.md`
 - **偏差记录**：tools-fs / tools-shell / system-prompt 等内置插件注册仍为直接调用（assume 应用常驻），未全部改接 effect——热启停内置插件不在 P3 范围，P5（子 agent 生命周期）前评估统一；`plugins` 暂不支持给外部插件传配置（`{ name, config }` 对象形式），需要时再扩
 
-### P4 Electron 桌面壳（拆为 P4a / P4b）
-- 全文客户端详规（§10.2 进程模型/功能清单/IPC）将于 P4 启动时外置至 `specs/desktop.md`
-- **P4a 最小可用 GUI（先打通闭环）**
-  - main/preload/renderer 三层（§10.2 进程模型与安全基线）
-  - Op/EventMsg 协议落地；renderer 刷新状态重同步
-  - 聊天主区流式渲染 + 基础权限卡片（allow/deny/always）
-  - **验收**：脱离 CLI，在 GUI 完成 P2 同款闭环任务（含权限卡片、中断）；权限卡片 `allow`/`deny`/`always` 三态与 `waiting-permission` 状态机一致，中断 GUI 任务时 `agentLoop.interrupt` 解挂且不残留 pending 卡片
-- **P4b 增强体验**
-  - diff 视图、reasoning 折叠块、token 角标
-  - 设置页（provider/model/API Key）、会话侧栏、Ask/Agent/Quest 模式切换
-  - **验收**：完整覆盖 §10.2 功能清单；三级模式切换（Ask/Agent/Quest）即时生效且各自语义符合 `specs/permissions.md`；diff 展示 + 多会话切换状态自洽（切换会话不串事件）
+### P4 Electron 桌面壳（P4a ✅ 已实施 / P4b 待实施）
+
+> 客户端详规已外置至 [specs/desktop.md](specs/desktop.md)（§10.2 落地版：进程模型/IPC/安全基线/验收对照）。
+
+**P4a 最小可用 GUI ✅（已实施 2026-08-29）**
+- main/preload/renderer 三层（electron-vite 构建，§10.2 进程模型与安全基线：contextIsolation + preload 白名单 + CSP；preload 为 ESM 产物故 `sandbox: false`，隔离由 contextIsolation + 白名单承担）
+- Op/EventMsg 协议落地（channel 常量与类型在 `src/shared/ipc.ts`）；renderer 刷新状态重同步（快照全量重放 + 增量订阅，快照携带 sessionId/cwd）
+- 聊天主区流式渲染（纯文本）、工具卡片（running/done/error）、权限卡片三态（allow/deny/always + waiting-permission 状态机）、中断按钮、cwd 选择与切换（pickCwd 重建会话）
+- 退出：window-all-closed → bridge.dispose()（监听/订阅移除）→ app.shutdown()（§5.8）
+- core 补充两处契约导出：`SessionStore`（类型）与 `registerMockStepScript`（P3 遗漏，外部消费方需要）
+- **验收（全部自动化断言）**：① e2e 闭环——mock 闭环脚本 + 4 次权限卡片 allow，断言工具卡片序列与磁盘文件修复结果；② 权限三态——always 记忆/allow 不记忆/deny 拒绝（卡片计数 + 失败态断言）；③ 中断——权限等待中停止、工具执行中停止均 turn interrupted、卡片消失、可再输入；e2e 4 用例全绿（Playwright `_electron`，mock provider 不触网，脚本复用 P2 场景闭环结构）
+- **测试**：desktop 包 13 条单测（renderer reducer 7 + main bridge 6）+ e2e 4 用例；vitest 全仓 102 全绿
+- **真测冒烟（2026-08-29，DeepSeek V4 Flash）**：GUI 真实模型完成「写 script.js → 运行 → 输出 Hello, heluo!」，工具序列 list_dir→write_file→run_command，权限卡片 2 次确认真实走通，turn completed（151 事件全程流转）
+- **偏差记录**：① 初始 cwd 若仅靠事件广播存在竞态（renderer 订阅晚于 main 广播），快照并入 cwd 字段解决；② 会话 cwd 曾误用 process.cwd()（Electron 启动目录），改为显式传入解析后的工作目录；③ mock step 脚本按会话内 tool 消息总数索引、跨 turn 累计——e2e 中断用例第二次提交按 mock 语义断言 turn 正常完成而非再次弹卡；④ vitest 4 已弃用 workspace 文件，迁移至 root `vitest.config.ts` 的 `test.projects`（desktop 以配置文件引用限定 `src/**/*.test.ts`，避免捡起 Playwright spec）
+
+**P4b 增强体验（待实施）**
+- diff 视图、reasoning 折叠块、token 角标
+- 设置页（provider/model/API Key 写 credentials.json）、会话侧栏（多会话）、Ask/Agent/Quest 模式切换
+- **验收**：完整覆盖 §10.2 功能清单；三级模式切换（Ask/Agent/Quest）即时生效且各自语义符合 `specs/permissions.md`；diff 展示 + 多会话切换状态自洽（切换会话不串事件）
 
 ### P5 多 agent 编排
 - agents 服务扩展 factory/create/dispose；spawn_subagent 工具 + 独立会话 + 摘要回传；并发上限 4
