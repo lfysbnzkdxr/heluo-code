@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { boot } from '../index'
@@ -8,8 +7,9 @@ import type { DeepPartial } from '../shared/types'
 import { registerMockScript, registerMockStepScript } from '../plugins/llm-mock'
 import type { SessionEvent } from '../shared/events'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 async function setup(overrides: DeepPartial<Config> = {}) {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-p5-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-p5-'))
   const app = await boot(
     { cwd },
     {
@@ -27,7 +27,7 @@ const EXPLORER_TOOLS = ['read_file', 'list_dir', 'grep_search']
 describe('P5 多 agent 编排（agents 服务 + spawn_subagent）', () => {
   let base: string
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-p5-base-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-p5-base-'))
   })
   afterEach(() => {
     rmSync(base, { recursive: true, force: true })

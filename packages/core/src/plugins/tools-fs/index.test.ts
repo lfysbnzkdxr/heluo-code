@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createContext } from '../../context'
@@ -7,6 +6,7 @@ import type { ToolContext, ToolOutcome, ToolResult } from '../../services/tools/
 import { toolsPlugin } from '../../services/tools'
 import { toolsFsPlugin } from './index'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 function makeCtx() {
   const ctx = createContext()
   ctx.provide('config', {
@@ -34,7 +34,7 @@ function makeCtx() {
 describe('tools-fs', () => {
   let cwd: string
   beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), 'heluo-fs-'))
+    cwd = mkdtempSync(join(TEST_TMP, 'heluo-fs-'))
   })
   afterEach(() => {
     rmSync(cwd, { recursive: true, force: true })

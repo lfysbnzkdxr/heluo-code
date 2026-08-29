@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ModelMessage } from 'ai'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -10,8 +9,9 @@ import { registerMockScript } from '../plugins/llm-mock'
 import type { AdapterFactory, StreamChunk } from '../services/llm/types'
 import type { SessionEvent } from '../shared/events'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 async function setup(overrides: DeepPartial<Config> = {}) {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-turn-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-turn-'))
   writeFileSync(join(cwd, 'foo.ts'), 'export const a = 1\n')
   const app = await boot(
     { cwd },
@@ -44,7 +44,7 @@ function assertInvariants(events: SessionEvent[]): void {
 describe('agentLoop 集成（mock provider + read_file）', () => {
   let base: string
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-'))
   })
   afterEach(() => {
     rmSync(base, { recursive: true, force: true })
@@ -123,7 +123,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
   })
 
   it('注入内容回灌模型（下一请求含注入 system 消息）', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-inject-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-inject-'))
     const app = await boot(
       { cwd },
       { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } },
@@ -191,7 +191,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
   })
 
   it('仅 reasoning 无文本无工具的步骤不产生空 assistant 消息', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-reason-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-reason-'))
     const app = await boot(
       { cwd },
       { model: 'reason/x', providers: { reason: { type: 'reason' } }, permission: { mode: 'quest' } },
@@ -218,7 +218,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
   })
 
   it('流式中断的半截文本不落定 assistant/message', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-halftext-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-halftext-'))
     const app = await boot(
       { cwd },
       { model: 'halftext/x', providers: { halftext: { type: 'halftext' } }, permission: { mode: 'quest' } },
@@ -254,7 +254,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
   })
 
   it('system prompt 在 turn 内 step 间保持一致（保前缀缓存）', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-sysprompt-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-sysprompt-'))
     const app = await boot(
       { cwd },
       { model: 'capture/demo', providers: { capture: { type: 'capture' } }, permission: { mode: 'quest' } },
@@ -298,7 +298,7 @@ describe('agentLoop 集成（mock provider + read_file）', () => {
   })
 
   it('contextWindow 声明经 softCap 生效（超长消息被截断）', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-softcap-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-softcap-'))
     const app = await boot(
       { cwd },
       {

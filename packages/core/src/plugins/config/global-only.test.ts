@@ -1,13 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { assertGlobalOnly } from './index'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 describe('assertGlobalOnly（providers/plugins 安全边界）', () => {
   let base: string
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-global-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-global-'))
   })
   afterEach(() => {
     rmSync(base, { recursive: true, force: true })

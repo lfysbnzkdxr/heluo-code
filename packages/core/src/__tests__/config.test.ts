@@ -1,5 +1,4 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createContext } from '../context'
@@ -7,6 +6,7 @@ import { configPlugin, buildConfig } from '../plugins/config'
 import type { ConfigPluginOptions } from '../plugins/config'
 import { parseJsonc, substituteEnv, mergeConfig } from '../plugins/config/schema'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 describe('config primitives', () => {
   it('parseJsonc strips line/block comments and trailing commas', () => {
     const value = parseJsonc(`{
@@ -36,7 +36,7 @@ describe('buildConfig precedence', () => {
   const prevHome = process.env.HELUO_CODE_HOME
 
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-'))
     process.env.HELUO_CODE_HOME = join(base, 'global')
     mkdirSync(process.env.HELUO_CODE_HOME!, { recursive: true })
   })

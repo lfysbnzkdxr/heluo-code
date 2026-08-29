@@ -1,19 +1,19 @@
 import { createServer, type Server } from 'node:http'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createContext, toolsPlugin, type SessionEvent, type SessionHandle, type ToolContext } from '@heluo-code/core'
 import { webFetchPlugin } from './index'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 describe('web-fetch 插件', () => {
   let server: Server
   let url: string
   let cwd: string
 
   beforeEach(async () => {
-    cwd = mkdtempSync(join(tmpdir(), 'heluo-wf-'))
+    cwd = mkdtempSync(join(TEST_TMP, 'heluo-wf-'))
     server = createServer((req, res) => {
       if (req.url !== '/page') {
         res.writeHead(404, { 'content-type': 'text/plain' })

@@ -1,15 +1,15 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadApiKey } from './index'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 describe('loadApiKey（specs/config.md 凭据优先级）', () => {
   let base: string
   const prevHome = process.env.HELUO_CODE_HOME
 
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-cred-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-cred-'))
     process.env.HELUO_CODE_HOME = join(base, 'home')
     mkdirSync(process.env.HELUO_CODE_HOME!, { recursive: true })
   })

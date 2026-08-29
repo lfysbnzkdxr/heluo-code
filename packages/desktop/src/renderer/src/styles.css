@@ -446,3 +446,125 @@ body {
 .composer-input:disabled {
   opacity: 0.6;
 }
+
+.agent-board {
+  border-top: 1px solid #333;
+  background: #1a1a1c;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.agent-board-head {
+  font-size: 12px;
+  color: #9a9a9a;
+}
+
+.agent-card {
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #252526;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-card-task {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.agent-card-def {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: #c586c0;
+}
+
+.agent-status {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #333;
+  color: #9a9a9a;
+  white-space: nowrap;
+}
+
+.agent-status-running {
+  background: #0e639c;
+  color: #fff;
+}
+
+.agent-status-waiting-permission {
+  background: #7a4d00;
+  color: #ffd966;
+}
+
+.agent-status-failed {
+  background: #7a2d2d;
+  color: #f48771;
+}
+
+.agent-status-done {
+  background: #1f3d26;
+  color: #9cdc9c;
+}
+
+.agent-card-result {
+  font-size: 12px;
+  color: #9cdc9c;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px dashed #444;
+  padding-top: 4px;
+}
+
+.agent-card-error {
+  color: #f48771;
+}
+
+.agent-perm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-perm-tool {
+  font-family: Consolas, monospace;
+  color: #c586c0;
+  font-size: 12px;
+}
+
+.agent-perm-args {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #ffd966;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.agent-perm-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.agent-interrupt {
+  align-self: flex-start;
+  padding: 2px 10px;
+  font-size: 12px;
+}

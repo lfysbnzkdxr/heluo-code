@@ -1,6 +1,5 @@
 import { createServer, type Server } from 'node:http'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { AddressInfo } from 'node:net'
@@ -14,6 +13,7 @@ import { createContext, shutdown } from '../context'
 import { toolsPlugin } from '../services/tools'
 import { hookLog, p3FixturePlugin } from './fixtures/p3-fixture-plugin'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 // 本地路径形式加载的外部插件：相对 profile.cwd 解析
 const coreRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const FIXTURE_REL = './src/__tests__/fixtures/p3-fixture-plugin.ts'
@@ -21,7 +21,7 @@ const FIXTURE_REL = './src/__tests__/fixtures/p3-fixture-plugin.ts'
 describe('P3 插件生态化', () => {
   let base: string
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-p3-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-p3-'))
     hookLog.length = 0
   })
   afterEach(() => {

@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createContext } from '../../context'
@@ -8,6 +7,7 @@ import type { SessionEvent } from '../../shared/events'
 import { toolsPlugin } from '../../services/tools'
 import { toolsShellPlugin } from './index'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 function makeCtx() {
   const ctx = createContext()
   ctx.provide('config', {
@@ -35,7 +35,7 @@ function makeCtx() {
 describe('tools-shell', () => {
   let cwd: string
   beforeEach(() => {
-    cwd = mkdtempSync(join(tmpdir(), 'heluo-shell-'))
+    cwd = mkdtempSync(join(TEST_TMP, 'heluo-shell-'))
   })
   afterEach(() => {
     rmSync(cwd, { recursive: true, force: true })

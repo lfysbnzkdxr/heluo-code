@@ -1,8 +1,14 @@
 import { _electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+
+// e2e 测试数据落仓库根 test-tmp/（gitignore），不写系统 tmpdir（C 盘）
+const TEST_TMP = (() => {
+  const dir = join(import.meta.dirname, '..', '..', '..', 'test-tmp')
+  mkdirSync(dir, { recursive: true })
+  return dir
+})()
 
 async function launch(cwd: string, script: string): Promise<{ app: ElectronApplication; window: Page }> {
   const app = await _electron.launch({
@@ -28,7 +34,7 @@ async function approveNextCard(window: Page, button: 'allow' | 'always' | 'deny'
 }
 
 test('闭环：GUI 完成写脚本→运行→读报错→修复→再运行（含 4 次权限卡片 allow）', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-loop-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-loop-'))
   const { app, window } = await launch(cwd, 'loop')
   try {
     await sendTask(window, '写一个脚本并跑通')
@@ -52,7 +58,7 @@ test('闭环：GUI 完成写脚本→运行→读报错→修复→再运行（�
 })
 
 test('权限三态：always 记忆（同工具不弹卡）、allow 不记忆、deny 拒绝', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-perm-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-perm-'))
   const { app, window } = await launch(cwd, 'perm')
   try {
     await sendTask(window, '写两个文件并跑命令')
@@ -79,7 +85,7 @@ test('权限三态：always 记忆（同工具不弹卡）、allow 不记忆、d
 })
 
 test('中断①：权限等待中点停止 → turn interrupted、卡片消失、可再输入', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-interrupt-waiting-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-interrupt-waiting-'))
   const { app, window } = await launch(cwd, 'interrupt-waiting')
   try {
     await sendTask(window, '运行一个命令')
@@ -102,7 +108,7 @@ test('中断①：权限等待中点停止 → turn interrupted、卡片消失�
 // 进程树杀灭由 core 层单测兜底（tools-shell index.test.ts「中断终止进程树且不挂起」），
 // 此处只断言 turn 收尾与卡片清理
 test('中断②：工具执行中点停止 → run_command 收尾、turn interrupted', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-interrupt-running-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-interrupt-running-'))
   const { app, window } = await launch(cwd, 'interrupt-running')
   try {
     await sendTask(window, '跑一个长命令')
@@ -120,7 +126,7 @@ test('中断②：工具执行中点停止 → run_command 收尾、turn interru
 })
 
 test('diff 视图：write_file 新建全 add、edit_file 有 del/add', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-diff-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-diff-'))
   const { app, window } = await launch(cwd, 'diff')
   try {
     await sendTask(window, '新建并修改文件')
@@ -150,7 +156,7 @@ test('diff 视图：write_file 新建全 add、edit_file 有 del/add', async () 
 })
 
 test('模式切换即时生效：agent→quest 后写操作不再弹卡（specs/permissions.md §8.3）', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-mode-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-mode-'))
   const { app, window } = await launch(cwd, 'mode')
   try {
     await sendTask(window, '写两个文件')
@@ -174,7 +180,7 @@ test('模式切换即时生效：agent→quest 后写操作不再弹卡（specs/
 })
 
 test('多会话：新建/切换保留历史，切换不串事件', async () => {
-  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-sessions-'))
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-sessions-'))
   const { app, window } = await launch(cwd, 'simple')
   try {
     // 会话 A：一次 turn
@@ -204,6 +210,50 @@ test('多会话：新建/切换保留历史，切换不串事件', async () => {
     await window.getByTestId('session-item').nth(1).click()
     await expect(window.getByTestId('tool-card')).toHaveCount(1)
     await expect(window.getByTestId('last-turn-end')).toContainText('completed')
+  } finally {
+    await app.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('子代理看板：授权闭环——卡片等待授权→allow→完成+摘要，文件落盘', async () => {
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-agentboard-'))
+  const { app, window } = await launch(cwd, 'agents')
+  try {
+    await sendTask(window, '派发一个子代理写文件')
+
+    // 看板出现：子 agent 卡片进入「等待授权」（子会话权限请求经看板呈现）
+    await window.getByTestId('agent-board').waitFor({ timeout: 30_000 })
+    await expect(window.getByTestId('agent-perm')).toContainText('write_file')
+
+    // 卡片授权 allow → 状态流转「完成」+ 摘要可见
+    await window.getByTestId('agent-perm-allow').click()
+    await expect(window.getByTestId('agent-card-result')).toContainText('文件已写入', { timeout: 30_000 })
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+
+    // 子 agent 写文件真实落盘（工具真实执行）
+    expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('board')
+  } finally {
+    await app.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('子代理看板：卡片中断——挂起授权中点中断，子 agent interrupted、主 turn 正常完成', async () => {
+  const cwd = mkdtempSync(join(TEST_TMP, 'heluo-e2e-agentboard-int-'))
+  const { app, window } = await launch(cwd, 'agents')
+  try {
+    await sendTask(window, '派发一个子代理写文件')
+
+    // 子 agent 挂起在权限请求 → 卡片中断按钮可用
+    await window.getByTestId('agent-perm').waitFor({ timeout: 30_000 })
+    await window.getByTestId('agent-interrupt').click()
+
+    // 子 agent 以 interrupted 闭合（摘要为中断文案），主 turn 不受影响正常完成
+    await expect(window.getByTestId('agent-card-result')).toContainText('interrupted', { timeout: 30_000 })
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+    // 中断发生在执行前：文件未被写入（不存在）
+    expect(existsSync(join(cwd, 'a.txt'))).toBe(false)
   } finally {
     await app.close()
     rmSync(cwd, { recursive: true, force: true })

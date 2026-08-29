@@ -23,6 +23,7 @@ export interface AgentHandle {
   status: AgentStatus
   summary?: string
   error?: string
+  pendingPermission?: { id: string; tool: string; argsSummary: string }
   send(text: string): void
   interrupt(): void
   waitDone(): Promise<void>
@@ -92,8 +93,13 @@ function defaultFactory({ ctx, handle, definition, signal, emit }: AgentFactoryO
     ctx.permissions!.setSessionMode(session.sessionId, mode)
 
     const unsub = session.subscribe((ev) => {
-      if (ev.type === 'permission/request') emit('waiting-permission')
-      else if (ev.type === 'permission/response') emit('running')
+      if (ev.type === 'permission/request') {
+        handle.pendingPermission = { id: ev.properties.id, tool: ev.properties.tool, argsSummary: ev.properties.argsSummary }
+        emit('waiting-permission')
+      } else if (ev.type === 'permission/response') {
+        handle.pendingPermission = undefined
+        emit('running')
+      }
     })
 
     try {
@@ -107,6 +113,10 @@ function defaultFactory({ ctx, handle, definition, signal, emit }: AgentFactoryO
       })
       if (result.stopReason === 'error') {
         return { error: result.error ?? '子 agent 运行失败' }
+      }
+      if (result.stopReason === 'interrupted') {
+        // 中断 = 未完成：不取部分输出作为结论，回传明确中断文案
+        return { summary: `（子代理被中断，stopReason: interrupted）` }
       }
       let summary: string | undefined
       for (let i = session.getAll().length - 1; i >= 0; i--) {

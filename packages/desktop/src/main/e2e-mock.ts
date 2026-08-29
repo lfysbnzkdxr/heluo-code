@@ -150,6 +150,19 @@ export const E2E_SCRIPTS: Record<string, MockChunk[][]> = {
     ],
     [{ type: 'text-delta', delta: '完成' }, { type: 'done' }],
   ],
+  // 子代理看板：spawn_subagent 派发写文件子任务（子 agent 权限请求在子会话，
+  // 经看板卡片授权闭环；中断用例在卡片挂起时点中断）
+  agents: [
+    [
+      { type: 'text-delta', delta: '派发子代理' },
+      {
+        type: 'tool-call',
+        call: { id: 'a1', name: 'spawn_subagent', argsJson: JSON.stringify({ task: '写文件 a.txt', definitionId: 'e2e-sub' }) },
+      },
+      { type: 'done' },
+    ],
+    [{ type: 'text-delta', delta: '子代理任务完成，摘要已回传' }, { type: 'done' }],
+  ],
 }
 
 // e2e 模式：挂 mock provider 并注册指定脚本（HELUO_CODE_E2E_MOCK=1 时由 main 调用）
@@ -158,4 +171,15 @@ export async function setupE2EMock(ctx: Context, script: string): Promise<void> 
   if (!steps) throw new Error(`unknown e2e script: ${script}`)
   await ctx.plugin(llmMockPlugin)
   registerMockStepScript(script, steps)
+  if (script === 'agents') {
+    ctx.agents!.registerDefinition({ id: 'e2e-sub', systemPrompt: 'e2e sub', model: 'mock/e2e-sub', tools: ['write_file'] })
+    registerMockStepScript('e2e-sub', [
+      [
+        { type: 'text-delta', delta: '写文件…' },
+        { type: 'tool-call', call: { id: 'b1', name: 'write_file', argsJson: JSON.stringify({ path: 'a.txt', content: 'board' }) } },
+        { type: 'done' },
+      ],
+      [{ type: 'text-delta', delta: '文件已写入' }, { type: 'done' }],
+    ])
+  }
 }

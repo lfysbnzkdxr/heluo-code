@@ -1,4 +1,4 @@
-import type { SessionEvent } from '@heluo-code/core'
+import type { AgentStatus, SessionEvent } from '@heluo-code/core'
 
 // renderer → main（fire-and-forget，回执由事件流承载）
 export type Op =
@@ -7,6 +7,7 @@ export type Op =
   | { type: 'permission-decision'; requestId: string; decision: 'allow' | 'deny' | 'always' }
   | { type: 'create-session' }
   | { type: 'switch-session'; sessionId: string }
+  | { type: 'agent-interrupt'; agentId: string }
 
 export interface SessionInfo {
   id: string
@@ -14,17 +15,29 @@ export interface SessionInfo {
   active: boolean
 }
 
+export interface AgentInfo {
+  id: string
+  definitionId?: string
+  task: string
+  status: AgentStatus
+  summary?: string
+  error?: string
+  pendingPermission?: { id: string; tool: string; argsSummary: string }
+}
+
 // main → renderer（EventMsg 本质是 SessionEvent 的转发 + 少量运行态，SPEC §10.2）
 export type EventMsg =
   | { type: 'session-event'; event: SessionEvent }
   | { type: 'cwd-changed'; cwd: string }
   | { type: 'sessions-changed'; sessions: SessionInfo[] }
+  | { type: 'agents-status'; agents: AgentInfo[] }
 
 export interface Snapshot {
   sessionId: string
   cwd: string
   events: SessionEvent[]
   sessions: SessionInfo[]
+  agents: AgentInfo[]
 }
 
 // 设置页/模式切换数据面（P4b）：配置快照 + 运行时可改项

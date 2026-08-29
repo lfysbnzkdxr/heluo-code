@@ -1,12 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import type { ConfigSnapshot, PermissionMode, SessionInfo } from '../../shared/ipc'
+import type { ConfigSnapshot, PermissionMode, SessionInfo, AgentInfo } from '../../shared/ipc'
 import { createInitialState, reducer, replay } from './session'
 import type { UiState } from './session'
 import MessageList from './MessageList'
 import PermissionCard from './PermissionCard'
 import SessionSidebar from './SessionSidebar'
 import SettingsPanel from './SettingsPanel'
+import AgentBoard from './AgentBoard'
 
 const STATUS_LABEL: Record<UiState['turnStatus'], string> = {
   idle: '空闲',
@@ -26,17 +27,19 @@ export default function App(): JSX.Element {
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ConfigSnapshot | null>(null)
   const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [agents, setAgents] = useState<AgentInfo[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const sessionIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     let disposed = false
-    void window.heluo.getSnapshot().then(({ sessionId, cwd, events, sessions }) => {
+    void window.heluo.getSnapshot().then(({ sessionId, cwd, events, sessions, agents }) => {
       if (disposed) return
       dispatch({ type: 'replace', state: replay(events) })
       sessionIdRef.current = sessionId
       setCwd(cwd)
       setSessions(sessions)
+      setAgents(agents)
     })
     void window.heluo.getConfig().then((cfg) => {
       if (!disposed) setConfig(cfg)
@@ -47,7 +50,7 @@ export default function App(): JSX.Element {
         sessionIdRef.current ??= msg.event.sessionId
       } else if (msg.type === 'cwd-changed') {
         setCwd(msg.cwd)
-      } else {
+      } else if (msg.type === 'sessions-changed') {
         setSessions(msg.sessions)
         const active = msg.sessions.find((s) => s.active)
         if (active && active.id !== sessionIdRef.current) {
@@ -58,6 +61,8 @@ export default function App(): JSX.Element {
             setCwd(snap.cwd)
           })
         }
+      } else {
+        setAgents(msg.agents)
       }
     })
     return () => {
@@ -172,6 +177,12 @@ export default function App(): JSX.Element {
             />
           )}
         </main>
+
+        <AgentBoard
+          agents={agents}
+          onInterrupt={(agentId) => window.heluo.submit({ type: 'agent-interrupt', agentId })}
+          onPermission={(requestId, decision) => window.heluo.submit({ type: 'permission-decision', requestId, decision })}
+        />
 
         <footer className="composer">
           <input

@@ -11,8 +11,8 @@
 
 | 阶段 | 范围 | 状态 |
 |---|---|---|
-| **P5a**（本次） | agents 服务 + AgentDefinition 注册 + spawn_subagent 工具 + Q5 权限继承 + 编排事件落日志；vitest 验收 | 详设先行 |
-| **P5b**（后续） | agents-status / subagent 事件桥接 renderer + 看板 UI（状态流转、摘要展示）+ e2e | 契约见 §6 |
+| **P5a**（已完成） | agents 服务 + AgentDefinition 注册 + spawn_subagent 工具 + Q5 权限继承 + 编排事件落日志；vitest 137 全绿 | ✅ 2026-08-30 |
+| **P5b**（已完成） | 看板 UI：agents-status / agent-interrupt 数据面 + AgentBoard 组件 + 子 agent 权限授权闭环 + e2e；真测冒烟 | ✅ 2026-08-30 |
 
 ## 2. AgentDefinition
 
@@ -122,12 +122,57 @@ parameters: {
 - `AgentDefinition.permissionMode` 显式声明时优先于父快照（如 explorer 可按需声明）。
 - 变更时机：mode 在子 agent 运行中变更**不影响**该子 agent（快照语义，不追溯）。
 
-## 6. 看板 UI 契约（P5b 前置，本次不实现）
+## 6. 看板 UI 契约（P5b 落地详设）
 
-- 数据源：`onStatusChange` 广播 + 主会话 `subagent/spawn|finished` 事件（经 desktop bridge 转发 renderer）。
-- UI 形态：会话侧栏新增「子 agent 卡片」面板——每卡展示 definitionId/task/status 流转（idle→running→waiting-permission→done/failed）、摘要、中断按钮。
-- 交互：卡片中断 = `AgentHandle.interrupt()`；卡片展开 = 子会话事件流（P5b 评估按需）。
-- e2e：mock 场景下断言卡片状态流转与摘要展示。
+### 6.1 数据面（desktop shared/ipc.ts）
+
+```ts
+interface AgentInfo {
+  id: string
+  definitionId?: string
+  task: string
+  status: AgentStatus              // idle | running | waiting-permission | done | failed
+  summary?: string
+  error?: string
+  pendingPermission?: { id: string; tool: string; argsSummary: string }   // waiting-permission 时的待决授权
+}
+
+// EventMsg 新增（全量推送，量小：并发上限 4 + 已完成，与快照重同步口径一致）
+{ type: 'agents-status'; agents: AgentInfo[] }
+// Op 新增
+{ type: 'agent-interrupt'; agentId: string }
+// Snapshot 新增
+agents: AgentInfo[]
+```
+
+### 6.2 core 侧小改：子 agent 权限授权闭环
+
+- `AgentHandle` 增加 `pendingPermission?: { id; tool; argsSummary }`：defaultFactory 订阅子会话事件填充（permission/request）与清除（permission/response）。
+- renderer 收到看板卡片上的授权按钮 → 复用现有 `permission-decision` Op（requestId 全局唯一，permissions.respond 无需会话定位）→ 子 agent 权限请求完成闭环。主区 PermissionCard 不受影响（子请求不进入主会话事件流）。
+
+### 6.3 bridge（desktop main/bridge.ts）
+
+- 订阅 `ctx.agents.onStatusChange` → 广播 `agents-status`（全量 `list()` 映射 AgentInfo）。
+- `agent-interrupt` Op → `ctx.agents.get(agentId)?.interrupt()`（排队中/在途均生效）。
+- 快照重同步携带 `agents`（renderer 刷新后恢复看板）。
+
+### 6.4 renderer（AgentBoard 组件）
+
+- 位置：聊天主区底部面板（`data-testid="agent-board"`），有子 agent 时展示。
+- 卡片（`data-testid="agent-card"`）：
+  - 首行：任务文本 + definitionId + 状态徽章（running=运行中 / waiting-permission=等待授权 / done=完成 / failed=失败 / idle=排队中）；
+  - 摘要/错误文本（done/failed 时）；
+  - 等待授权时：allow / deny / always 按钮（`data-testid="agent-perm-<decision>"`）；
+  - running/waiting-permission 时：中断按钮（`data-testid="agent-interrupt"`）。
+- 状态来源：`agents-status` EventMsg 全量替换本地 state（与快照 `agents` 初始一致），与 session 事件流完全解耦。
+
+### 6.5 验收标准（P5b 全部自动化断言）
+
+1. **vitest（bridge 新增）**：① `agents-status` 转发（create 后收到全量推送，状态流转伴随推送）；② `agent-interrupt` Op 中断在途子 agent（子会话 turn/end=interrupted）；③ 快照携带 agents 列表。
+2. **e2e 用例 A「看板授权闭环」**：agent 模式，主 agent `spawn_subagent` 派发写文件子任务 → 看板卡片出现且状态「等待授权」→ 点 allow → 卡片流转「完成」+ 摘要文本可见 + 文件落盘 + 主 turn completed。
+3. **e2e 用例 B「看板中断」**：子 agent 挂起在权限请求 → 点卡片中断按钮 → 卡片「完成」（interrupted 摘要）且主 turn 正常 completed。
+4. **typecheck 全绿**（desktop node + web）。
+5. **真测冒烟（真实模型）** ✅：DeepSeek V4 Flash 真实跑通「并行派发 2 个 explorer 子代理探索代码并汇总」——主 agent 经 spawn_subagent 派发 3 次（子任务 B 首因 cwd 软约束拒绝路径后，主 agent 依据摘要自我修正重派），子代理独立会话 + 摘要回传正常，主 agent 结构化汇总 5 条要点，turn completed（12,068 tokens）。真实行为符合设计（cwd 软约束拒绝 + 摘要闭环推理），未暴露需修复缺陷。
 
 ## 7. P5a 验收清单（全部自动化断言）
 

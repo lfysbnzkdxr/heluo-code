@@ -12,7 +12,7 @@ import {
   IPC_CHANNEL_PICK_CWD,
   IPC_CHANNEL_SNAPSHOT,
 } from '../shared/ipc'
-import type { ConfigSnapshot, EventMsg, Op, SessionInfo } from '../shared/ipc'
+import type { ConfigSnapshot, EventMsg, Op, SessionInfo, AgentInfo } from '../shared/ipc'
 
 export interface BridgeDeps {
   ctx: Context
@@ -56,6 +56,22 @@ export function attachBridge(deps: BridgeDeps): Bridge {
     unsubscribe = session.subscribe((ev: SessionEvent) => {
       broadcast({ type: 'session-event', event: ev })
     })
+  }
+
+  function agentList(): AgentInfo[] {
+    return ctx.agents?.list().map((h) => ({
+      id: h.id,
+      definitionId: h.definitionId,
+      task: h.task,
+      status: h.status,
+      summary: h.summary,
+      error: h.error,
+      pendingPermission: h.pendingPermission,
+    })) ?? []
+  }
+
+  function broadcastAgents(): void {
+    broadcast({ type: 'agents-status', agents: agentList() })
   }
 
   function createSession(cwd: string): SessionStore {
@@ -102,13 +118,19 @@ export function attachBridge(deps: BridgeDeps): Bridge {
         activate(op.sessionId)
         break
       }
+      case 'agent-interrupt': {
+        ctx.agents?.get(op.agentId)?.interrupt()
+        break
+      }
     }
   }
   ipcMain.on(IPC_CHANNEL_OP, onOp)
 
+  const unsubscribeAgents = ctx.agents?.onStatusChange(() => broadcastAgents())
+
   const onSnapshot = (_e: IpcMainInvokeEvent) => {
     const session = sessions.get(activeId)!
-    return { sessionId: session.id, cwd: session.cwd, events: session.getAll(), sessions: sessionList() }
+    return { sessionId: session.id, cwd: session.cwd, events: session.getAll(), sessions: sessionList(), agents: agentList() }
   }
   ipcMain.handle(IPC_CHANNEL_SNAPSHOT, onSnapshot)
 
@@ -177,6 +199,7 @@ export function attachBridge(deps: BridgeDeps): Bridge {
     setCwd,
     dispose() {
       disposed = true
+      unsubscribeAgents?.()
       ipcMain.removeListener(IPC_CHANNEL_OP, onOp)
       ipcMain.removeHandler(IPC_CHANNEL_SNAPSHOT)
       ipcMain.removeHandler(IPC_CHANNEL_PICK_CWD)

@@ -1,22 +1,22 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { boot } from '../index'
 import { registerMockStepScript } from '../plugins/llm-mock'
 import type { SessionEvent } from '../shared/events'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 describe('P2 验收场景', () => {
   let base: string
   beforeEach(() => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-p2-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-p2-'))
   })
   afterEach(() => {
     rmSync(base, { recursive: true, force: true })
   })
 
   it('G1 闭环：新建脚本→运行报错→读文件→修复→再运行通过', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-loop-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-loop-'))
     const app = await boot(
       { cwd },
       {
@@ -101,7 +101,7 @@ describe('P2 验收场景', () => {
   })
 
   it('G2 权限记忆跨步：always 后不再弹确认；allow 不记忆；deny 生效', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'heluo-perm-'))
+    const cwd = mkdtempSync(join(TEST_TMP, 'heluo-perm-'))
     const app = await boot(
       { cwd },
       {

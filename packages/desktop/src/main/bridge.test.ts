@@ -1,12 +1,11 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IpcMain, WebContents } from 'electron'
 import { boot, llmMockPlugin, registerMockScript } from '@heluo-code/core'
 import type { SessionEvent } from '@heluo-code/core'
 import { attachBridge, writeCredentials } from './bridge'
-import type { EventMsg, Op } from '../shared/ipc'
+import type { AgentInfo, EventMsg, Op, Snapshot } from '../shared/ipc'
 import {
   IPC_CHANNEL_CONFIG_GET,
   IPC_CHANNEL_CONFIG_SET,
@@ -17,6 +16,7 @@ import {
   IPC_CHANNEL_SNAPSHOT,
 } from '../shared/ipc'
 
+const TEST_TMP = (() => { const dir = join(import.meta.dirname, '..', '..', '..', '..', 'test-tmp'); mkdirSync(dir, { recursive: true }); return dir })()
 type Listener = (e: unknown, ...args: unknown[]) => void
 
 function mockIpcMain(): { ipcMain: IpcMain; fireOp: (op: Op) => void; invoke: (channel: string, ...args: unknown[]) => Promise<unknown>; fired: string[] } {
@@ -83,7 +83,7 @@ describe('main bridge', () => {
   const prevHome = process.env.HELUO_CODE_HOME
 
   beforeEach(async () => {
-    base = mkdtempSync(join(tmpdir(), 'heluo-bridge-'))
+    base = mkdtempSync(join(TEST_TMP, 'heluo-bridge-'))
     process.env.HELUO_CODE_HOME = join(base, 'home')
     mkdirSync(process.env.HELUO_CODE_HOME!, { recursive: true })
     app = await boot(
@@ -175,7 +175,7 @@ describe('main bridge', () => {
   })
 
   it('pick-cwd 换目录：广播 cwd-changed，新会话快照为空', async () => {
-    const next = mkdtempSync(join(tmpdir(), 'heluo-bridge2-'))
+    const next = mkdtempSync(join(TEST_TMP, 'heluo-bridge2-'))
     const bridge = attachBridge({
       ctx: app.ctx,
       ipcMain: ipc.ipcMain,
@@ -323,6 +323,57 @@ describe('main bridge', () => {
     await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
     const snapshot = (await ipc.invoke(IPC_CHANNEL_SNAPSHOT)) as { events: SessionEvent[] }
     expect(snapshot.events.some((e) => e.type === 'turn/end')).toBe(true)
+    bridge.dispose()
+  })
+
+  it('agents-status：子 agent 创建与状态流转全量推送（含摘要）', async () => {
+    const bridge = attach()
+    app.ctx.agents!.registerDefinition({ id: 'sub', systemPrompt: 's', model: 'mock/sub' })
+    registerMockScript('sub', [{ type: 'text-delta', delta: '结论' }, { type: 'done' }])
+
+    const h = await app.ctx.agents!.create({ task: '探索', definitionId: 'sub', parentSessionId: bridge.session.id })
+    await h.waitDone()
+
+    const msgs = wc.sent.filter((m) => m.type === 'agents-status')
+    expect(msgs.length).toBeGreaterThan(0)
+    const last = msgs.at(-1)! as { agents: AgentInfo[] }
+    expect(last.agents).toHaveLength(1)
+    expect(last.agents[0]!.status).toBe('done')
+    expect(last.agents[0]!.summary).toBe('结论')
+    bridge.dispose()
+  })
+
+  it('agent-interrupt op 中断在途子 agent（子会话 interrupted 闭合）', async () => {
+    const bridge = attach()
+    app.ctx.agents!.registerDefinition({ id: 'subw', systemPrompt: 'w', model: 'mock/subw', tools: ['write_file'] })
+    registerMockScript('subw', [
+      { type: 'tool-call', call: { id: 'w1', name: 'write_file', argsJson: JSON.stringify({ path: 'a.txt', content: 'x' }) } },
+      { type: 'done' },
+    ])
+
+    const h = await app.ctx.agents!.create({ task: '写文件', definitionId: 'subw', parentSessionId: bridge.session.id })
+    await waitFor(() => h.status === 'waiting-permission')
+    ipc.fireOp({ type: 'agent-interrupt', agentId: h.id })
+    await h.waitDone()
+
+    const child = app.ctx.sessions!.get(h.sessionId)!
+    const end = child.getAll().find((e) => e.type === 'turn/end')!
+    expect(end.properties.stopReason).toBe('interrupted')
+    bridge.dispose()
+  })
+
+  it('快照携带 agents 列表（刷新重同步恢复看板）', async () => {
+    const bridge = attach()
+    app.ctx.agents!.registerDefinition({ id: 'sub3', systemPrompt: 's', model: 'mock/sub3' })
+    registerMockScript('sub3', [{ type: 'text-delta', delta: 'x' }, { type: 'done' }])
+
+    const h = await app.ctx.agents!.create({ task: 't', definitionId: 'sub3', parentSessionId: bridge.session.id })
+    await h.waitDone()
+
+    const snap = (await ipc.invoke(IPC_CHANNEL_SNAPSHOT)) as Snapshot
+    expect(snap.agents).toHaveLength(1)
+    expect(snap.agents[0]!.task).toBe('t')
+    expect(snap.agents[0]!.status).toBe('done')
     bridge.dispose()
   })
 })

@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.6 ｜ 日期：2026-08-30 ｜ 状态：P5a 已实施（多 agent 编排核心：agents 服务 + spawn_subagent + Q5 权限继承；vitest 137 全绿 + e2e 7 用例全绿 + typecheck 全绿）
+> 版本：v1.7 ｜ 日期：2026-08-30 ｜ 状态：P5 全量已实施（多 agent 编排：agents 服务 + spawn_subagent + Q5 权限继承 + 看板 UI；vitest 140 全绿 + e2e 9 用例全绿 + typecheck 全绿 + 真测冒烟通过）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -500,9 +500,9 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 ### P5 多 agent 编排
 - **P5a 已实施**（2026-08-30）：agents 服务（setFactory/registerDefinition/create/get/list/dispose/onStatusChange，默认 factory「本进程子 agent」）；AgentDefinition（systemPrompt/工具白名单/模型偏好/权限模式）+ 内置 explorer 预定义 agent；spawn_subagent 工具（独立会话 + 白名单拒绝 + 摘要回传，主会话落 subagent/spawn|finished 编排事件）；并发上限默认 4 FIFO 排队（`config.agents.maxConcurrency`），排队中可 interrupt；Q5 权限继承（子 agent 模式 = spawn 时父会话快照，permissions 按 session 覆盖表，always 记忆天然按会话隔离）；父 turn 中断级联；详见 specs/orchestration.md
 - **验收（P5a 全部自动化断言）**：vitest 137 全绿（新增 12 条：并行派发 2 子 agent 汇总+上下文隔离、并发并行/排队/排队取消、Q5 继承+记忆隔离、白名单拒绝、中断级联、dispose 无残留、参数校验、评审整改：sessionMode 清理 + send 窗口期缓冲）+ typecheck 全绿
-- **P5b（后续）**：看板 UI（agents-status/subagent 事件桥接 renderer + 状态流转卡片 + 摘要展示 + e2e）
+- **P5b 已实施**（2026-08-30）：看板 UI——ipc 数据面（EventMsg `agents-status` 全量推送 / Op `agent-interrupt` / Snapshot 携带 agents）+ bridge 订阅 onStatusChange 转发与中断 Op + AgentBoard 组件（任务/definitionId/状态四态徽章/摘要/等待授权 allow|deny|always 按钮/中断按钮）+ 子 agent 权限授权闭环（AgentHandle.pendingPermission，复用 permission-decision Op）；vitest 140 全绿（bridge 新增 3 条）+ e2e 9 用例全绿（新增看板授权闭环/卡片中断 2 用例）+ typecheck 全绿 + 真测冒烟通过（DeepSeek 真实模型并行派发 2 explorer 子代理汇总，12,068 tokens）
 - 编排详设已外置至 `specs/orchestration.md`（含看板 UI 契约）
-- **验收（全量）**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论（P5a ✓）；看板实时反映状态流转（P5b）；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染（P5a ✓）；父 Quest 时子 agent 权限继承规则明确（Q5 已关闭：快照继承 + 记忆隔离）
+- **验收（全量）**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论（P5a ✓）；看板实时反映状态流转（P5b ✓）；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染（P5a ✓）；父 Quest 时子 agent 权限继承规则明确（Q5 已关闭：快照继承 + 记忆隔离）
 
 ### P6 产品化（持续迭代池，按优先级排序）
 0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束（注：P1 已在工具层交付 `read_file`/`write_file` 的 cwd 软约束，绝对路径 escape 即拒绝，此处升级为 OS 强制，二者不互斥）。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
