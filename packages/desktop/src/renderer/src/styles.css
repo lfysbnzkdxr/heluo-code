@@ -1,0 +1,228 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.cwd {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #9cdcfe;
+}
+
+.status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #333;
+}
+
+.status-waiting-permission {
+  background: #7a4d00;
+  color: #ffd966;
+}
+
+.status-running {
+  background: #0e639c;
+  color: #fff;
+}
+
+.last-turn {
+  font-size: 12px;
+  color: #888;
+}
+
+.btn {
+  padding: 4px 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #4a4a4a;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: #0e639c;
+  border-color: #0e639c;
+}
+
+.btn-danger {
+  background: #7a2d2d;
+  border-color: #7a2d2d;
+}
+
+.btn-stop {
+  background: #7a2d2d;
+  border-color: #7a2d2d;
+}
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.message {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-user {
+  align-self: flex-end;
+  background: #0e639c;
+}
+
+.message-assistant {
+  align-self: flex-start;
+  background: #2d2d30;
+}
+
+.message-label {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 2px;
+}
+
+.tool-card {
+  align-self: stretch;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #252526;
+  padding: 8px 10px;
+}
+
+.tool-card-error {
+  border-color: #7a2d2d;
+}
+
+.tool-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tool-card-name {
+  font-family: Consolas, monospace;
+  color: #c586c0;
+}
+
+.tool-card-status {
+  font-size: 11px;
+  color: #888;
+}
+
+.tool-card-status-error {
+  color: #f48771;
+}
+
+.tool-card-status-done {
+  color: #4ec9b0;
+}
+
+.tool-card-args,
+.tool-card-output {
+  margin: 0;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #9cdcfe;
+}
+
+.tool-card-output {
+  margin-top: 4px;
+  color: #d4d4d4;
+  max-height: 120px;
+  overflow-y: auto;
+  border-top: 1px dashed #444;
+  padding-top: 4px;
+}
+
+.permission-card {
+  position: sticky;
+  bottom: 0;
+  border: 1px solid #7a4d00;
+  border-radius: 8px;
+  background: #3a2e10;
+  padding: 10px 12px;
+}
+
+.permission-title {
+  margin-bottom: 4px;
+}
+
+.permission-args {
+  margin: 0 0 8px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ffd966;
+}
+
+.permission-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #252526;
+  border-top: 1px solid #333;
+}
+
+.composer-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.composer-input:disabled {
+  opacity: 0.6;
+}
