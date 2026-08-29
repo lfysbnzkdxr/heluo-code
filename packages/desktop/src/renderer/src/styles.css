@@ -12,8 +12,77 @@ body {
 
 .app {
   display: flex;
-  flex-direction: column;
   height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar {
+  width: 200px;
+  min-width: 200px;
+  background: #1a1a1c;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #9a9a9a;
+  border-bottom: 1px solid #333;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #d4d4d4;
+  cursor: pointer;
+  text-align: left;
+}
+
+.session-item:hover {
+  background: #2d2d30;
+}
+
+.session-item-active {
+  background: #0e639c;
+}
+
+.session-cwd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+
+.session-active-mark {
+  font-size: 9px;
+  color: #fff;
 }
 
 .topbar {
@@ -55,6 +124,87 @@ body {
 .last-turn {
   font-size: 12px;
   color: #888;
+}
+
+.token-badge {
+  font-size: 12px;
+  color: #4ec9b0;
+  font-family: Consolas, monospace;
+}
+
+.reasoning-block {
+  border-left: 3px solid #6a5acd;
+  background: #23202b;
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: #9d9d9d;
+}
+
+.message-group {
+  align-self: flex-start;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.message-group .message {
+  max-width: 100%;
+}
+
+.reasoning-block summary {
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+
+.reasoning-content {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-view {
+  margin-top: 4px;
+  border-top: 1px dashed #444;
+  padding-top: 4px;
+}
+
+.diff-path {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #9cdcfe;
+  margin-bottom: 2px;
+}
+
+.diff-content {
+  margin: 0;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.diff-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-add {
+  background: #1f3d26;
+  color: #9cdc9c;
+}
+
+.diff-del {
+  background: #3d1f1f;
+  color: #f48771;
+}
+
+.diff-ctx {
+  color: #9a9a9a;
 }
 
 .btn {
@@ -204,6 +354,76 @@ body {
 .permission-actions {
   display: flex;
   gap: 8px;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 2px;
+}
+
+.mode-btn {
+  padding: 3px 10px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #3c3c3c;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mode-btn-active {
+  background: #0e639c;
+  border-color: #0e639c;
+  color: #fff;
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.settings-panel {
+  width: 420px;
+  max-width: 90vw;
+  background: #252526;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9a9a9a;
+}
+
+.settings-hint {
+  font-size: 12px;
+}
+
+.settings-hint-ok {
+  color: #4ec9b0;
+}
+
+.settings-hint-error {
+  color: #f48771;
 }
 
 .composer {

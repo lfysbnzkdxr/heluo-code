@@ -1,13 +1,21 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IpcMain, WebContents } from 'electron'
 import { boot, llmMockPlugin, registerMockScript } from '@heluo-code/core'
 import type { SessionEvent } from '@heluo-code/core'
-import { attachBridge } from './bridge'
+import { attachBridge, writeCredentials } from './bridge'
 import type { EventMsg, Op } from '../shared/ipc'
-import { IPC_CHANNEL_EVENT, IPC_CHANNEL_OP, IPC_CHANNEL_PICK_CWD, IPC_CHANNEL_SNAPSHOT } from '../shared/ipc'
+import {
+  IPC_CHANNEL_CONFIG_GET,
+  IPC_CHANNEL_CONFIG_SET,
+  IPC_CHANNEL_CREDENTIALS_SET,
+  IPC_CHANNEL_EVENT,
+  IPC_CHANNEL_OP,
+  IPC_CHANNEL_PICK_CWD,
+  IPC_CHANNEL_SNAPSHOT,
+} from '../shared/ipc'
 
 type Listener = (e: unknown, ...args: unknown[]) => void
 
@@ -72,9 +80,12 @@ describe('main bridge', () => {
   let app: Awaited<ReturnType<typeof boot>>
   let ipc: ReturnType<typeof mockIpcMain>
   let wc: ReturnType<typeof mockWebContents>
+  const prevHome = process.env.HELUO_CODE_HOME
 
   beforeEach(async () => {
     base = mkdtempSync(join(tmpdir(), 'heluo-bridge-'))
+    process.env.HELUO_CODE_HOME = join(base, 'home')
+    mkdirSync(process.env.HELUO_CODE_HOME!, { recursive: true })
     app = await boot(
       { cwd: base },
       {
@@ -92,6 +103,8 @@ describe('main bridge', () => {
   afterEach(async () => {
     await app.shutdown()
     rmSync(base, { recursive: true, force: true })
+    if (prevHome === undefined) delete process.env.HELUO_CODE_HOME
+    else process.env.HELUO_CODE_HOME = prevHome
   })
 
   function attach(): ReturnType<typeof attachBridge> {
@@ -193,5 +206,123 @@ describe('main bridge', () => {
     expect(() => ipc.fireOp({ type: 'user-turn', sessionId: bridge.session.id, text: '不应处理' })).toThrow('no op listener')
     await new Promise((r) => setTimeout(r, 50))
     expect(wc.sent.length).toBe(countBefore)
+  })
+
+  it('config-get 返回模型/provider 列表/权限模式快照', async () => {
+    const bridge = attach()
+    const cfg = (await ipc.invoke(IPC_CHANNEL_CONFIG_GET)) as {
+      model: string
+      providers: Array<{ id: string; type: string }>
+      permissionMode: string
+    }
+    expect(cfg.model).toBe('mock/bridge')
+    expect(cfg.providers).toEqual([{ id: 'mock', type: 'mock', baseURL: undefined, models: undefined }])
+    expect(cfg.permissionMode).toBe('agent')
+    bridge.dispose()
+  })
+
+  it('config-set 更新模型与权限模式（即时生效）；非法模式被拒', async () => {
+    const bridge = attach()
+    await ipc.invoke(IPC_CHANNEL_CONFIG_SET, { model: 'mock/other', permissionMode: 'quest' })
+    expect(app.ctx.config!.get().model).toBe('mock/other')
+    expect(app.ctx.config!.get().permission.mode).toBe('quest')
+
+    await expect(ipc.invoke(IPC_CHANNEL_CONFIG_SET, { permissionMode: 'hack' })).rejects.toThrow()
+    expect(app.ctx.config!.get().permission.mode).toBe('quest')
+    bridge.dispose()
+  })
+
+  it('credentials-set 写 ~/.heluo-code/credentials.json（含父目录创建）', async () => {
+    const bridge = attach()
+    await ipc.invoke(IPC_CHANNEL_CREDENTIALS_SET, { providerId: 'deepseek', apiKey: 'sk-123' })
+    const path = join(process.env.HELUO_CODE_HOME!, 'credentials.json')
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ deepseek: 'sk-123' })
+
+    // 再次写入合并而非覆盖
+    await ipc.invoke(IPC_CHANNEL_CREDENTIALS_SET, { providerId: 'qwen', apiKey: 'sk-456' })
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ deepseek: 'sk-123', qwen: 'sk-456' })
+    bridge.dispose()
+  })
+
+  it('credentials-set 参数非法时拒绝', async () => {
+    const bridge = attach()
+    await expect(ipc.invoke(IPC_CHANNEL_CREDENTIALS_SET, { providerId: '', apiKey: 'x' })).rejects.toThrow()
+    await expect(ipc.invoke(IPC_CHANNEL_CREDENTIALS_SET, { providerId: 'x', apiKey: 42 })).rejects.toThrow()
+    bridge.dispose()
+  })
+
+  it('writeCredentials 保留既有文件内容（损坏文件重建）', () => {
+    const path = join(process.env.HELUO_CODE_HOME!, 'credentials.json')
+    writeCredentials('a', '1')
+    writeCredentials('b', '2')
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ a: '1', b: '2' })
+
+    writeFileSync(path, '{ 损坏')
+    writeCredentials('c', '3')
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ c: '3' })
+  })
+
+  it('create-session 新建同 cwd 会话并激活（旧会话保留历史）', async () => {
+    const bridge = attach()
+    ipc.fireOp({ type: 'user-turn', sessionId: bridge.session.id, text: '说你好' })
+    await waitFor(() => events().some((e) => e.type === 'turn/end'))
+    const firstId = bridge.session.id
+
+    ipc.fireOp({ type: 'create-session' })
+    await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
+    const snapshot = (await ipc.invoke(IPC_CHANNEL_SNAPSHOT)) as {
+      sessionId: string
+      cwd: string
+      events: SessionEvent[]
+      sessions: Array<{ id: string; cwd: string; active: boolean }>
+    }
+    expect(snapshot.sessionId).not.toBe(firstId)
+    expect(snapshot.events).toEqual([])
+    expect(snapshot.sessions).toHaveLength(2)
+    expect(snapshot.sessions.filter((s) => s.active)).toHaveLength(1)
+    expect(snapshot.sessions[1]!.cwd).toBe(base)
+    bridge.dispose()
+  })
+
+  it('switch-session 切回旧会话：快照恢复历史、激活态正确', async () => {
+    const bridge = attach()
+    ipc.fireOp({ type: 'user-turn', sessionId: bridge.session.id, text: '说你好' })
+    await waitFor(() => events().some((e) => e.type === 'turn/end'))
+    const firstId = bridge.session.id
+
+    ipc.fireOp({ type: 'create-session' })
+    await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
+    wc.sent.length = 0
+
+    ipc.fireOp({ type: 'switch-session', sessionId: firstId })
+    await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
+    const snapshot = (await ipc.invoke(IPC_CHANNEL_SNAPSHOT)) as {
+      sessionId: string
+      events: SessionEvent[]
+      sessions: Array<{ id: string; active: boolean }>
+    }
+    expect(snapshot.sessionId).toBe(firstId)
+    expect(snapshot.events.some((e) => e.type === 'assistant/message')).toBe(true)
+    expect(snapshot.sessions.find((s) => s.id === firstId)!.active).toBe(true)
+    bridge.dispose()
+  })
+
+  it('非 active 会话 turn 不串入当前 UI 事件流；切回后历史完整', async () => {
+    const bridge = attach()
+    const firstId = bridge.session.id
+    ipc.fireOp({ type: 'create-session' })
+    await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
+
+    // 对非 active 会话发起 turn：事件落日志但不转发（事件流只含 active 会话）
+    ipc.fireOp({ type: 'user-turn', sessionId: firstId, text: '说你好' })
+    await waitFor(() => !app.ctx.agentLoop!.hasActiveTurns())
+    expect(events().some((e) => e.type === 'assistant/message')).toBe(false)
+
+    // 切回后快照含该 turn 完整历史
+    ipc.fireOp({ type: 'switch-session', sessionId: firstId })
+    await waitFor(() => wc.sent.some((m) => m.type === 'sessions-changed'))
+    const snapshot = (await ipc.invoke(IPC_CHANNEL_SNAPSHOT)) as { events: SessionEvent[] }
+    expect(snapshot.events.some((e) => e.type === 'turn/end')).toBe(true)
+    bridge.dispose()
   })
 })

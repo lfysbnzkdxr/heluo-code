@@ -6,6 +6,12 @@ export interface TokenUsage {
   totalTokens: number
 }
 
+export interface FileDiff {
+  path: string
+  before: string
+  after: string
+}
+
 export interface SessionEventMap {
   'user/message': { text: string }
   'reasoning/chunk': { stepId: string; delta: string }
@@ -13,7 +19,7 @@ export interface SessionEventMap {
   'assistant/message': { stepId: string; content: string }
   'tool/call': { stepId: string; callId: string; name: string; args: unknown }
   'tool/stream': { callId: string; delta: string }
-  'tool/result': { callId: string; output: string; isError: boolean; durationMs: number }
+  'tool/result': { callId: string; output: string; isError: boolean; durationMs: number; diff?: FileDiff }
   'permission/request': { id: string; tool: string; argsSummary: string }
   'permission/response': { id: string; decision: 'allow' | 'deny' | 'always' }
   'turn/start': { turnId: string }

@@ -118,3 +118,94 @@ test('中断②：工具执行中点停止 → run_command 收尾、turn interru
     rmSync(cwd, { recursive: true, force: true })
   }
 })
+
+test('diff 视图：write_file 新建全 add、edit_file 有 del/add', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-diff-'))
+  const { app, window } = await launch(cwd, 'diff')
+  try {
+    await sendTask(window, '新建并修改文件')
+    await approveNextCard(window, 'allow')
+    await approveNextCard(window, 'allow')
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+
+    const cards = window.getByTestId('tool-card')
+    expect(await cards.count()).toBe(3)
+
+    // write_file 卡片：diff 全 add（新建）
+    const writeDiff = cards.nth(0).getByTestId('diff-view')
+    await expect(writeDiff).toBeVisible()
+    await expect(writeDiff.locator('.diff-add')).toHaveCount(2)
+    await expect(writeDiff.locator('.diff-del')).toHaveCount(0)
+
+    // edit_file 卡片：diff 有 del + add
+    const editDiff = cards.nth(2).getByTestId('diff-view')
+    await expect(editDiff.locator('.diff-del')).toHaveCount(1)
+    await expect(editDiff.locator('.diff-add')).toHaveCount(1)
+    await expect(editDiff.locator('.diff-del')).toContainText('line2')
+    await expect(editDiff.locator('.diff-add')).toContainText('line2-modified')
+  } finally {
+    await app.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('模式切换即时生效：agent→quest 后写操作不再弹卡（specs/permissions.md §8.3）', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-mode-'))
+  const { app, window } = await launch(cwd, 'mode')
+  try {
+    await sendTask(window, '写两个文件')
+    // agent 模式：第一张 write_file 卡弹出（等待授权中）
+    await window.getByTestId('permission-card').waitFor({ timeout: 30_000 })
+
+    // 等待授权中切到 Quest：已弹出的卡不受追溯，后续判定即时用新模式
+    await window.getByTestId('mode-quest').click()
+    await approveNextCard(window, 'allow')
+
+    // 第二个 write_file 不再弹卡（quest 对 ask 工具自动放行），turn 正常完成、无残留卡
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+    expect(await window.getByTestId('permission-card').count()).toBe(0)
+    expect(await window.getByTestId('tool-card').count()).toBe(2)
+    expect(readFileSync(join(cwd, 'a.txt'), 'utf8')).toBe('one')
+    expect(readFileSync(join(cwd, 'b.txt'), 'utf8')).toBe('two')
+  } finally {
+    await app.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('多会话：新建/切换保留历史，切换不串事件', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'heluo-e2e-sessions-'))
+  const { app, window } = await launch(cwd, 'simple')
+  try {
+    // 会话 A：一次 turn
+    await sendTask(window, '写文件')
+    await approveNextCard(window, 'allow')
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+    const messagesA = await window.getByTestId('message-assistant').count()
+    expect(messagesA).toBeGreaterThan(0)
+
+    // 新建会话 B：主区清空（无消息、无工具卡）
+    await window.getByTestId('session-create').click()
+    await expect(window.getByTestId('session-item')).toHaveCount(2)
+    await expect(window.getByTestId('message-assistant')).toHaveCount(0)
+    await expect(window.getByTestId('tool-card')).toHaveCount(0)
+
+    // 会话 B：一次 turn（事件不串入 A 的历史）
+    await sendTask(window, '再写一个文件')
+    await approveNextCard(window, 'allow')
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed', { timeout: 30_000 })
+
+    // 切回会话 A：历史完整恢复，且不含 B 的消息
+    await window.getByTestId('session-item').first().click()
+    await expect(window.getByTestId('message-assistant')).toHaveCount(messagesA)
+    await expect(window.getByTestId('tool-card')).toHaveCount(1)
+
+    // 再切回 B：B 的历史恢复
+    await window.getByTestId('session-item').nth(1).click()
+    await expect(window.getByTestId('tool-card')).toHaveCount(1)
+    await expect(window.getByTestId('last-turn-end')).toContainText('completed')
+  } finally {
+    await app.close()
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})

@@ -95,4 +95,24 @@ describe('buildConfig precedence', () => {
     expect(ctx.config?.get().model).toBe('svc-model')
     await ctx.fiber.dispose()
   })
+
+  it('update 内存级变更：模式切换即时生效（不落盘、不追溯）', async () => {
+    const ctx = createContext()
+    await ctx.plugin(configPlugin, { profile: { cwd: base }, overrides: { permission: { mode: 'agent' } } })
+    expect(ctx.config!.get().permission.mode).toBe('agent')
+
+    ctx.config!.update({ permission: { mode: 'quest' } })
+    expect(ctx.config!.get().permission.mode).toBe('quest')
+    expect(ctx.config!.get().model).toBe('') // 未 touch 字段保持原值
+    await ctx.fiber.dispose()
+  })
+
+  it('update 非法 patch 抛 ConfigError 且原配置不变', async () => {
+    const ctx = createContext()
+    await ctx.plugin(configPlugin, { profile: { cwd: base }, overrides: { model: 'keep' } })
+    expect(() => ctx.config!.update({ loop: { maxStepsPerTurn: -1 } })).toThrow()
+    expect(ctx.config!.get().model).toBe('keep')
+    expect(ctx.config!.get().loop.maxStepsPerTurn).toBe(40)
+    await ctx.fiber.dispose()
+  })
 })

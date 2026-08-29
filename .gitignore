@@ -12,3 +12,5 @@ coverage/
 .heluo-code/
 credentials.json
 tmp/
+
+release/

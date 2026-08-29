@@ -1,8 +1,31 @@
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { streamText, jsonSchema, tool, type ToolSet } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import type { Context } from '@cordisjs/core'
+import { isPlainObject, parseJsonc } from '../config/schema'
 import type { AdapterFactory } from '../../services/llm/types'
 import { normalizeFullStream } from '../../services/llm/normalize'
+
+// 凭据解析（specs/config.md）：apiKeyEnv 环境变量 > ~/.heluo-code/credentials.json（JSONC: { providerId: apiKey }）
+export function loadApiKey(providerId: string, apiKeyEnv?: string): string | undefined {
+  if (apiKeyEnv) {
+    const fromEnv = process.env[apiKeyEnv]
+    if (fromEnv) return fromEnv
+  }
+  const home = process.env.HELUO_CODE_HOME ?? join(homedir(), '.heluo-code')
+  try {
+    const parsed = parseJsonc(readFileSync(join(home, 'credentials.json'), 'utf8'))
+    if (isPlainObject(parsed)) {
+      const value = parsed[providerId]
+      if (typeof value === 'string' && value.length > 0) return value
+    }
+  } catch {
+    /* 无凭据文件：返回 undefined，由上游报缺 key 错误 */
+  }
+  return undefined
+}
 
 function toAiTools(tools: { name: string; description: string; parameters: Record<string, unknown> }[]): ToolSet {
   const set: Record<string, ReturnType<typeof tool>> = {}
@@ -14,7 +37,7 @@ function toAiTools(tools: { name: string; description: string; parameters: Recor
 
 const factory: AdapterFactory = (req, deps) => {
   const providerConfig = deps.providerConfig
-  const apiKey = providerConfig?.apiKeyEnv ? process.env[providerConfig.apiKeyEnv] : undefined
+  const apiKey = loadApiKey(req.adapterId, providerConfig?.apiKeyEnv)
   const provider = createOpenAICompatible({
     name: providerConfig?.type ?? 'openai-compatible',
     baseURL: providerConfig?.baseURL ?? 'https://api.openai.com/v1',

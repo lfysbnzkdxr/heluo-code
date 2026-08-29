@@ -98,6 +98,58 @@ export const E2E_SCRIPTS: Record<string, MockChunk[][]> = {
     ],
     [{ type: 'text-delta', delta: '不应到达' }, { type: 'done' }],
   ],
+  // 单步：write_file 一次（多会话/简单场景用）
+  simple: [
+    [
+      { type: 'text-delta', delta: '写一个文件' },
+      { type: 'tool-call', call: { id: 'm1', name: 'write_file', argsJson: JSON.stringify({ path: 's.txt', content: 'hello' }) } },
+      { type: 'done' },
+    ],
+    [{ type: 'text-delta', delta: '完成' }, { type: 'done' }],
+  ],
+  // diff 视图：新建（diff 全 add）+ 读取 + 编辑（diff 有 del/add；edit_file 需先 read）
+  diff: [
+    [
+      { type: 'text-delta', delta: '新建文件' },
+      {
+        type: 'tool-call',
+        call: { id: 'd1', name: 'write_file', argsJson: JSON.stringify({ path: 'd.txt', content: 'line1\nline2' }) },
+      },
+      { type: 'done' },
+    ],
+    [
+      { type: 'text-delta', delta: '读取文件' },
+      { type: 'tool-call', call: { id: 'd2', name: 'read_file', argsJson: JSON.stringify({ path: 'd.txt' }) } },
+      { type: 'done' },
+    ],
+    [
+      { type: 'text-delta', delta: '修改文件' },
+      {
+        type: 'tool-call',
+        call: {
+          id: 'd3',
+          name: 'edit_file',
+          argsJson: JSON.stringify({ path: 'd.txt', old_string: 'line2', new_string: 'line2-modified' }),
+        },
+      },
+      { type: 'done' },
+    ],
+    [{ type: 'text-delta', delta: '完成' }, { type: 'done' }],
+  ],
+  // 模式切换：step1 write_file（agent 弹卡）→ step2 write_file（quest 自动放行不弹卡）
+  mode: [
+    [
+      { type: 'text-delta', delta: '写第一个文件' },
+      { type: 'tool-call', call: { id: 'q1', name: 'write_file', argsJson: JSON.stringify({ path: 'a.txt', content: 'one' }) } },
+      { type: 'done' },
+    ],
+    [
+      { type: 'text-delta', delta: '写第二个文件' },
+      { type: 'tool-call', call: { id: 'q2', name: 'write_file', argsJson: JSON.stringify({ path: 'b.txt', content: 'two' }) } },
+      { type: 'done' },
+    ],
+    [{ type: 'text-delta', delta: '完成' }, { type: 'done' }],
+  ],
 }
 
 // e2e 模式：挂 mock provider 并注册指定脚本（HELUO_CODE_E2E_MOCK=1 时由 main 调用）
