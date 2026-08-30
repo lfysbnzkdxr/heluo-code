@@ -49,7 +49,7 @@ heluo-code 主进程（普通用户即可）
 2. `CreateProcessW` + PROC_THREAD_ATTRIBUTE_TOKEN **不可用**（现代 Windows 不支持该属性，实测 ERROR_INVALID_PARAMETER 87）。
 3. AppContainer（SECURITY_CAPABILITIES）机制可用但 **cmd/powershell/node 全部 STATUS_DLL_INIT_FAILED (0xC0000142)**，普通 CLI 工具兼容性硬伤，否决。
 4. `koffi.decode(ptr, 'string16')` 触发 native crash（koffi 3.1.6 bug），必须用 `koffi.decode.string16()`。
-5. 受限进程 stdio 采用**继承直通**（GetStdHandle + SetHandleInformation 置 inheritable），无 dsh 的管道 DefaultDacl 问题；`SetTokenInformation(TokenDefaultDacl)` 在本机普通用户报 error 5（codex 社区亦见 1344 类问题），**不启用**（实测继承直通下受限进程完全正常）。
+5. 受限进程 stdio 采用**继承直通**（GetStdHandle + SetHandleInformation 置 inheritable），无 dsh 的管道 DefaultDacl 依赖；`SetTokenInformation(TokenDefaultDacl)` 在本机普通用户报 error 5（codex 社区亦见 1344 类问题），继承直通方案无需该合并（实测受限进程完全正常）。
 6. **Electron（GUI 子系统）父进程下 restricted 模式不可用**（受限 console 子进程 0xC0000142，已实测排除 token/DefaultDacl/环境/句柄/job 差异——root cause 收敛于 GUI 父进程的控制台分配路径）；sandbox 服务按 `process.versions.electron` 检测自动降级 job（进程树必杀保持）。**e2e 的 mock 场景不依赖 run_command 真实输出，曾掩盖此问题**（开发期排查记录）。
 
 **降级与 fail-closed 语义**：
@@ -122,6 +122,6 @@ sandbox: {
 - Online/Offline 双轨（联网命令经授权走 Online 用户）→ P6-0c
 - macOS/Linux 沙箱（Seatbelt/Landlock）→ P6-6
 - desktop 打包（asar）下 runner 的资源分发与 koffi native 模块加载：**已验证**——closeBundle 复制 runner 到 out/sandbox（asar 内）+ `@koromix/koffi-win32-x64` 显式 optionalDependencies（electron-builder 收集，native 经 asarUnpack）；win-unpacked 以 ELECTRON_RUN_AS_NODE 冒烟 job 模式通过；**Electron 环境 restricted 模式不可用（自动降级 job，见 §3）**
-- `SetTokenInformation(TokenDefaultDacl)` 在普通用户报 error 5 且本方案不依赖（继承直通 stdio）——若未来需支持受限进程内新管道（如 node 脚本 spawn pipe 捕获），需特权环境或改用其他方案
+- `SetTokenInformation(TokenDefaultDacl)` 在普通用户报 error 5；继承直通 stdio 方案无需默认 DACL 合并——若未来支持受限进程内新管道（node 脚本 spawn pipe 捕获），需在特权环境实现 DefaultDacl 合并或改用它法
 - `koffi` 为新增 FFI 依赖（prebuilt，免编译链；dsh 已验证同款）→ README 已知取舍记录
 - 测试隔离：`test-setup.ts` 将 HELUO_CODE_HOME 指向 `test-tmp/home`（各包 vitest.config 显式声明 setupFiles——vitest 4 projects 模式根配置不继承）
