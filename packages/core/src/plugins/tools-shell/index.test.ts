@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -26,7 +27,14 @@ function makeCtx() {
         runCommandMaxTimeoutMs: 60000,
         editRequiresRead: true,
       },
+      sandbox: { mode: 'off' as const, writableRoots: [] },
     }),
+  })
+  ctx.provide('sandbox', {
+    mode: 'off' as const,
+    spawn(argv, opts) {
+      return spawn(argv[0]!, argv.slice(1), { cwd: opts.cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    },
   })
   toolsPlugin(ctx)
   return ctx

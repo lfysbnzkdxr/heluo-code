@@ -8,6 +8,8 @@ import type { ToolContext, ToolDefinition, ToolOutcome } from '../../services/to
 
 // PowerShell 5.1 经管道输出受 console 代码页影响（中文乱码），前缀强制 UTF-8 输出
 const UTF8_PREFIX = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
+// runner fail-closed 签名：任何沙箱初始化失败 stderr 打印此前缀并 exit 127
+const SANDBOX_RUN_FAILURE = 'sandbox-run:'
 
 function getConfig(ctx: Context): Config {
   return ctx.config?.get() as Config
@@ -60,10 +62,11 @@ function runCommandTool(ctx: Context): ToolDefinition {
       let spawnError: string | null = null
       let output = ''
 
-      const child = spawn(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', UTF8_PREFIX + command],
-        { cwd: absCwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+      // 进程创建统一走 ctx.sandbox（P6-0a）：restricted-write 经 runner 以 WRITE_RESTRICTED 受限令牌
+      // 执行（写 cwd 外被 OS 拒绝，KILL_ON_JOB_CLOSE 进程树必杀）；job 模式无特权保底；off 透传。
+      const child = ctx.root.sandbox!.spawn(
+        ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', UTF8_PREFIX + command],
+        { cwd: absCwd, writableRoots: cfg.sandbox?.writableRoots ?? [] },
       )
 
       const onData = (chunk: Buffer): void => {
@@ -135,6 +138,11 @@ function runCommandTool(ctx: Context): ToolDefinition {
       if (spawnError) {
         return { ok: false, errorForModel: `run_command: 无法启动 PowerShell：${spawnError}` }
       }
+      if (exitCode === 127 && output.includes(SANDBOX_RUN_FAILURE)) {
+        // fail-closed：沙箱初始化失败（令牌/ACL/进程创建），拒绝静默无沙箱执行
+        const detail = output.split('\n').find((l) => l.includes(SANDBOX_RUN_FAILURE)) ?? output.trim()
+        return { ok: false, errorForModel: `run_command: 沙箱初始化失败，命令未执行（fail-closed）：${detail}\n提示：可配置 sandbox.mode='job'（Job Object 保底）或 'off'` }
+      }
       if (exitCode !== 0) {
         return {
           ok: false,
@@ -150,4 +158,4 @@ export function toolsShellPlugin(ctx: Context): void {
   ctx.root.tools!.register(runCommandTool(ctx))
 }
 
-void Object.assign(toolsShellPlugin, { inject: ['tools'] })
+void Object.assign(toolsShellPlugin, { inject: ['tools', 'sandbox'] })

@@ -49,6 +49,31 @@ export interface SessionEventBase {
   timestamp: number
 }
 
+export const SESSION_EVENT_TYPES = [
+  'user/message',
+  'reasoning/chunk',
+  'assistant/chunk',
+  'assistant/message',
+  'tool/call',
+  'tool/stream',
+  'tool/result',
+  'permission/request',
+  'permission/response',
+  'turn/start',
+  'turn/end',
+  'step/start',
+  'step/end',
+  'subagent/spawn',
+  'subagent/finished',
+] as const satisfies readonly SessionEventType[]
+
 export function isSessionEvent(value: unknown): value is SessionEvent {
-  return typeof value === 'object' && value !== null && 'type' in value && 'properties' in value
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    'properties' in value &&
+    typeof (value as { type: unknown }).type === 'string' &&
+    (SESSION_EVENT_TYPES as readonly string[]).includes((value as { type: string }).type)
+  )
 }

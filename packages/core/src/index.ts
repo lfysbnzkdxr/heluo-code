@@ -10,6 +10,7 @@ import { agentLoopPlugin } from './services/loop'
 import { agentsPlugin } from './services/agents'
 import { systemPromptPlugin } from './plugins/system-prompt'
 import { permissionsPlugin } from './plugins/permissions'
+import { sandboxPlugin } from './plugins/sandbox'
 import { toolsFsPlugin } from './plugins/tools-fs'
 import { toolsShellPlugin } from './plugins/tools-shell'
 import { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'
@@ -31,6 +32,7 @@ export async function boot(profile: Profile, overrides?: DeepPartial<Config>): P
   await ctx.plugin(toolsPlugin)
   await ctx.plugin(systemPromptPlugin)
   await ctx.plugin(permissionsPlugin)
+  await ctx.plugin(sandboxPlugin)
   await ctx.plugin(toolsFsPlugin)
   await ctx.plugin(toolsShellPlugin)
   await ctx.plugin(llmOpenAICompatiblePlugin)
@@ -60,6 +62,8 @@ export type { AgentService, AgentHandle, AgentDefinition, AgentFactory, AgentSta
 export { toolsSpawnPlugin } from './plugins/tools-spawn'
 export { systemPromptPlugin } from './plugins/system-prompt'
 export { permissionsPlugin } from './plugins/permissions'
+export { sandboxPlugin } from './plugins/sandbox'
+export type { SandboxService, SandboxMode } from './plugins/sandbox'
 export { toolsFsPlugin } from './plugins/tools-fs'
 export { toolsShellPlugin } from './plugins/tools-shell'
 export { llmOpenAICompatiblePlugin } from './plugins/llm-openai-compatible'

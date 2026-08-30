@@ -1,6 +1,6 @@
 # heluo-code 规格说明书（SPEC）
 
-> 版本：v1.7 ｜ 日期：2026-08-30 ｜ 状态：P5 全量已实施（多 agent 编排：agents 服务 + spawn_subagent + Q5 权限继承 + 看板 UI；vitest 140 全绿 + e2e 9 用例全绿 + typecheck 全绿 + 真测冒烟通过）
+> 版本：v1.8 ｜ 日期：2026-08-30 ｜ 状态：P6-0 部分实施（会话持久化 JSONL 落地 + 进程级沙箱写限制：restricted-write/job 双模式；vitest 156 全绿 + e2e 9 用例全绿 + typecheck 全绿；网络隔离 P6-0b 进行中）
 >
 > 本文档是 heluo-code 项目的唯一规格来源（Single Source of Truth）的**主契约**。
 > 架构 / 决策 / 领域模型 / 实施计划保留于此；接口类型、工具、权限、配置等密度高的详规外置于 `docs/specs/`（见目录索引）。
@@ -280,7 +280,7 @@ interface SessionEventMap {
 | Trajectory 审查视图 | 按 type/source 过滤展示（P6） |
 | 上下文压缩 | compaction 能力读取旧日志生成摘要事件替换投影区间（P6） |
 
-存储格式 v1：JSONL，每会话一文件，位于 `~/.heluo-code/sessions/<id>.jsonl`。
+存储格式 v1：JSONL，每会话一文件，位于 `~/.heluo-code/sessions/<id>.jsonl`。**P6-0-pre 已落地**（2026-08-30）：`sessions.create` 持有 fd 同步追加写；`resume(sessionId, cwd)` 逐行加载（坏行/半截尾行跳过 + warn、schemaVersion 不匹配拒绝、未知类型跳过）；resume 的 UI 入口与会话标题属 P6-1。
 
 **会话生命周期（v1）**：不做自动清理，文件只增不减；内存中的事件数组与文件同源、同样只增不减（单会话万条事件量级的内存开销可接受）；`~/.heluo-code/sessions/` 长期积累由用户手动管理。归档/过期策略（如 90 天无访问压缩归档）列为 P6 评估项。
 
@@ -505,7 +505,11 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 - **验收（全量）**：主 agent 将探索类任务并行派发给 ≥2 个子 agent 并正确汇总结论（P5a ✓）；看板实时反映状态流转（P5b ✓）；子 agent 与主 agent 并发操作同文件时取 last-writer-wins（§5.3），不出现跨会话上下文污染（P5a ✓）；父 Quest 时子 agent 权限继承规则明确（Q5 已关闭：快照继承 + 记忆隔离）
 
 ### P6 产品化（持续迭代池，按优先级排序）
-0. **进程级沙箱（安全强制项，原非目标调整而来）**：Windows 下用 Restricted Token / Job Object（参考 codex Windows sandbox 实现），或整机运行于 WSL/容器，使 `run_command` 与文件写受 OS 强制约束而非仅工具层软约束（注：P1 已在工具层交付 `read_file`/`write_file` 的 cwd 软约束，绝对路径 escape 即拒绝，此处升级为 OS 强制，二者不互斥）。**安全验收（对应 R8）**：用越权命令（绝对路径跳出 cwd、网络外联、破坏性命令如 `rm -rf`）验证——均被 OS 拦截或经显式授权才放行，无静默越权。
+0. **进程级沙箱（安全强制项）**：
+   - **P6-0-pre 已实施**（2026-08-30）：JSONL 会话持久化落地（§5.2 缺口闭合，见 specs/sandbox.md §4）
+   - **P6-0a 已实施**（2026-08-30）：写限制双模式——`restricted-write`（`WRITE_RESTRICTED` 受限令牌 + workspace/temp 派生 SID + ACE 种/撤 + `CreateProcessAsUserW` + KILL_ON_JOB_CLOSE job，**普通用户实测可用**——CreateProcessAsUserW 对「调用者自身受限 token」有特权豁免）+ `job`（无特权保底：JOB_LIST 属性进程树必杀）；`ctx.sandbox` seam + runner.mjs + fail-closed（127 + `sandbox-run:` 前缀）+ 配置 `sandbox.mode`/`writableRoots`；**安全验收**：写 cwd 外被 OS 拒绝 ✓、破坏性命令权限 ask 把关 ✓、进程树必杀 ✓、fail-closed ✓（vitest 156 全绿 + e2e 9 用例全绿 + typecheck 全绿；实测结论与边界披露见 specs/sandbox.md）
+   - **P6-0b 进行中**：网络隔离——专用沙箱用户 + 防火墙出站规则（一次性管理员 setup `heluo-code sandbox:setup`）+ elevated helper（named pipe → CreateProcessAsUserW 沙箱用户），`isolated` 模式接入
+   - **P6-0c**：Online/Offline 双轨（联网命令经授权走 Online 用户）、桌面设置页沙箱状态展示
 1. resume/fork/replay（基于日志派生，预期低成本）+ 会话标题生成
 2. 上下文压缩：compaction 作为可替换能力（接口 + 朴素摘要默认实现），防「摘要的摘要」递归劣化
 3. MCP 接入（stdio transport 优先，工具同构转换）
@@ -555,7 +559,7 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 | R5 | Electron 安全面 | 恶意网页内容经模型进入 renderer？ | contextIsolation + preload 白名单；renderer 不持 apiKey；模型输出按纯文本渲染（Markdown 白名单，禁 raw HTML/script） |
 | R6 | 插件化过度抽象导致复杂度膨胀（dsh 公开批评点，O(n²) 交互成本） | 维护困难、理解门槛高 | 遵循 dsh 自己的规则：「只有一个可能的 provider 时不拆分」；每引入一个 seam 必须同时有两个候选实现动机 |
 | R7 | 长 turn 死循环/费用失控 | 体验差、烧钱 | maxStepsPerTurn=40 硬顶；usage 逐 turn 入日志并在 UI 展示 |
-| R8 | `run_command` 文件/网络越权、仓库内 prompt injection 诱导执行破坏性命令 | 数据丢失、隐私外泄 | P6 引入进程级沙箱强制约束；v1 期仅以权限 ask + cwd 软约束 + 命令级白名单为防线（明确告知用户风险） |
+| R8 | `run_command` 文件/网络越权、仓库内 prompt injection 诱导执行破坏性命令 | 数据丢失、隐私外泄 | **P6-0a 已落地写限制**（WRITE_RESTRICTED 双通过写检查，普通用户可用）与进程树必杀（KILL_ON_JOB_CLOSE）；网络隔离 P6-0b（专用沙箱用户 + 防火墙，需一次性管理员 setup）；v1 期权限 ask + cwd 软约束继续兜底（详见 specs/sandbox.md） |
 
 ---
 
@@ -570,5 +574,6 @@ renderer：React SPA，仅经 preload API 通信，绝不接触 core 内部对�
 | Q5 | 子 agent 的权限模式继承规则（父 Quest 时子 agent 默认权限） | 已关闭（P5a：spawn 时父会话模式快照 + 按 session 覆盖 + always 记忆隔离，见 specs/orchestration.md §5） |
 | Q6 | token 计数在非 OpenAI 网关上的口径统一（AI SDK usage 直传 vs 本地估算） | P6 |
 | Q7 | AI SDK 版本：规格写 v5，P0 核实时 npm latest 为 v7.0.83，P1 已确认采用 v7（`ai@^7` + `@ai-sdk/openai-compatible@^3`） | 已关闭（P1 实施） |
+| Q8 | 普通用户（非管理员）能否创建 WRITE_RESTRICTED 受限子进程（CreateProcessAsUserW 特权豁免的真实范围） | 已关闭（P6-0a 实测：CreateProcessAsUserW + 调用者自身受限 token 在普通用户可用；CreateProcessW + PROC_THREAD_ATTRIBUTE_TOKEN 不可用；AppContainer 对普通 CLI 工具 0xC0000142 不可行。见 specs/sandbox.md §3） |
 
 

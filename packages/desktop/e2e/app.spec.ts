@@ -18,6 +18,8 @@ async function launch(cwd: string, script: string): Promise<{ app: ElectronAppli
       HELUO_CODE_E2E_MOCK: '1',
       HELUO_CODE_E2E_SCRIPT: script,
       HELUO_CODE_E2E_CWD: cwd,
+      // 隔离会话持久化目录到仓库根 test-tmp（不写真实 ~/.heluo-code）
+      HELUO_CODE_HOME: join(TEST_TMP, 'home'),
     },
   })
   return { app, window: await app.firstWindow() }

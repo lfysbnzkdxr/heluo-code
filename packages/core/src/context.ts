@@ -8,6 +8,7 @@ import type { AgentLoopService } from './services/loop'
 import type { AgentService } from './services/agents'
 import type { SystemPromptService } from './plugins/system-prompt'
 import type { PermissionService } from './plugins/permissions'
+import type { SandboxService } from './plugins/sandbox'
 
 declare module '@cordisjs/core' {
   interface Context {
@@ -19,6 +20,7 @@ declare module '@cordisjs/core' {
     permissions?: PermissionService
     agentLoop?: AgentLoopService
     agents?: AgentService
+    sandbox?: SandboxService
   }
 }
 

@@ -24,6 +24,10 @@ export const configSchema = z.object({
   agents: z.object({
     maxConcurrency: z.number().int().positive(),
   }),
+  sandbox: z.object({
+    mode: z.enum(['off', 'job', 'restricted-write', 'isolated']),
+    writableRoots: z.array(z.string()),
+  }),
   rules: z.array(z.string()),
   tools: z.object({
     exclude: z.array(z.string()),
@@ -46,6 +50,7 @@ export const defaultConfig = {
   permission: { mode: 'agent' as const, questRunCommand: 'ask' as const },
   loop: { maxStepsPerTurn: 40 },
   agents: { maxConcurrency: 4 },
+  sandbox: { mode: 'restricted-write' as const, writableRoots: [] },
   rules: [],
   tools: {
     exclude: [],
