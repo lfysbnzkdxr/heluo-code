@@ -10,8 +10,8 @@
 //                 初始化 0xC0000142）。写类访问做双检查：只能写被授予 ACE 的
 //                 workspace/temp/writableRoots，其余路径写被 OS 拒绝。进程以 CREATE_SUSPENDED
 //                 创建 → AssignProcessToJobObject（KILL_ON_JOB_CLOSE）→ ResumeThread。
-//                 **需特权**（CreateProcessAsUserW 要求 SE_INCREASE_QUOTA，restricted 仅豁免
-//                 SE_ASSIGNPRIMARYTOKEN；普通用户环境不可用，由 sandbox 服务降级为 job）。
+//                 普通用户实测可用（CreateProcessAsUserW 对「调用者自身受限 token」有特权豁免，
+//                 无需 SE_ASSIGNPRIMARYTOKEN/SE_INCREASE_QUOTA，见 docs/specs/sandbox.md §3）。
 //
 //   任何 API 失败 → stderr 打印 "sandbox-run: <detail>" 并 exit 127（fail-closed，绝不无沙箱执行）。
 import { createHash } from 'node:crypto'
@@ -336,11 +336,10 @@ function grantWrite(path, sidPtr, sidStr) {
 function createKillOnCloseJob() {
   const hJob = CreateJobObjectW(null, null)
   if (isNullPtr(hJob)) fail(lastError('CreateJobObjectW'))
-  // JOBOBJECT_EXTENDED_LIMIT_INFORMATION：LimitFlags @ offset 16（x64 布局，dsh 验证）
+  // JOBOBJECT_EXTENDED_LIMIT_INFORMATION：LimitFlags @ offset 16、ActiveProcessLimit @40（x64 布局，dsh 验证）
   const information = Buffer.alloc(144)
   information.writeUInt32LE(KILL_ON_JOB_CLOSE, 16)
-  // TEMP-DEBUG: 与 C# 对照版一致，仅 KILL_ON_JOB_CLOSE
-  // information.writeUInt32LE(ACTIVE_PROCESS_LIMIT, 40)
+  information.writeUInt32LE(ACTIVE_PROCESS_LIMIT, 40)
   if (!SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, information, information.length)) {
     fail(lastError('SetInformationJobObject'))
   }
@@ -369,7 +368,6 @@ function buildStartupInfo(stdio, size) {
   koffi.encode(si, STARTUPINFOW, {
     cb: koffi.sizeof(STARTUPINFOW),
     lpReserved: null,
-    // TEMP-DEBUG: 与 C# 对照版一致，不设 lpDesktop
     lpDesktop: null,
     lpTitle: null,
     dwX: 0,
