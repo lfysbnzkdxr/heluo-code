@@ -134,6 +134,10 @@ importers:
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.12))
+    optionalDependencies:
+      '@koromix/koffi-win32-x64':
+        specifier: 3.1.6
+        version: 3.1.6
 
   packages/plugin-web-fetch:
     dependencies:

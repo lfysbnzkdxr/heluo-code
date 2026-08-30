@@ -56,6 +56,20 @@ describe('sandbox 服务（模式解析）', () => {
     expect(ctx.root.sandbox!.mode).toBe('restricted-write')
   })
 
+  it('Electron 环境 restricted-write/isolated 降级 job（受限子进程控制台分配失败 0xC0000142）', () => {
+    const original = process.versions.electron
+    Object.defineProperty(process.versions, 'electron', { value: '44.0.0', configurable: true })
+    try {
+      const ctx1 = makeCtx({ sandbox: { mode: 'restricted-write', writableRoots: [] } })
+      expect(ctx1.root.sandbox!.mode).toBe('job')
+      const ctx2 = makeCtx({ sandbox: { mode: 'isolated', writableRoots: [] } })
+      expect(ctx2.root.sandbox!.mode).toBe('job')
+    } finally {
+      if (original === undefined) delete process.versions.electron
+      else Object.defineProperty(process.versions, 'electron', { value: original, configurable: true })
+    }
+  })
+
   it('spawn 参数构造：off 透传 / 沙箱走 runner', () => {
     const ctx = makeCtx()
     const service = ctx.root.sandbox as SandboxService

@@ -50,12 +50,14 @@ heluo-code 主进程（普通用户即可）
 3. AppContainer（SECURITY_CAPABILITIES）机制可用但 **cmd/powershell/node 全部 STATUS_DLL_INIT_FAILED (0xC0000142)**，普通 CLI 工具兼容性硬伤，否决。
 4. `koffi.decode(ptr, 'string16')` 触发 native crash（koffi 3.1.6 bug），必须用 `koffi.decode.string16()`。
 5. 受限进程 stdio 采用**继承直通**（GetStdHandle + SetHandleInformation 置 inheritable），无 dsh 的管道 DefaultDacl 问题；`SetTokenInformation(TokenDefaultDacl)` 在本机普通用户报 error 5（codex 社区亦见 1344 类问题），**不启用**（实测继承直通下受限进程完全正常）。
+6. **Electron（GUI 子系统）父进程下 restricted 模式不可用**（受限 console 子进程 0xC0000142，已实测排除 token/DefaultDacl/环境/句柄/job 差异——root cause 收敛于 GUI 父进程的控制台分配路径）；sandbox 服务按 `process.versions.electron` 检测自动降级 job（进程树必杀保持）。**e2e 的 mock 场景不依赖 run_command 真实输出，曾掩盖此问题**（开发期排查记录）。
 
 **降级与 fail-closed 语义**：
 
 | 场景 | 行为 |
 |---|---|
 | 非 win32 | mode 强制 'off' + 启动 logger.warn（工具层软约束兜底） |
+| **Electron（GUI 子系统父进程）+ restricted-write/isolated** | **降级 job** + warn——GUI 父进程创建 console 受限子进程时控制台分配失败，子进程 0xC0000142（实测；与 dsh 的 console isolation 限制同族）；CLI（纯 node console 进程）完整可用 |
 | isolated 未配置 setup（P6-0b 前） | warn + 按 restricted-write 执行（写限制完整生效） |
 | runner 初始化失败（令牌/ACL/进程创建） | **拒绝执行** + stderr `sandbox-run: <detail>` + exit 127；tools-shell 识别并报「沙箱初始化失败，命令未执行（fail-closed）」+ 提示切换 job/off |
 
@@ -109,8 +111,9 @@ sandbox: {
 | 4 | a | 进程树必杀：命令派生孙进程 → runner 退出 → 孙进程被 job 强杀（DEAD 断言） | ✅ vitest（真实进程） |
 | 5 | a | fail-closed：runner 初始化失败 → 127 + `sandbox-run:` 前缀；tools-shell 报「沙箱初始化失败」 | ✅ vitest |
 | 6 | a | 退出码透传（exit 3）；UTF-8 中文输出；超时/中断杀进程树不挂起 | ✅ vitest |
-| 7 | a | e2e 回归：9 用例全绿（Electron 内 runner 经 ELECTRON_RUN_AS_NODE 运行） | ✅ e2e |
-| 8 | a | 回归：156 单测全绿 + typecheck 全绿 | ✅ |
+| 7 | a | e2e 回归：9 用例全绿（Electron 内 runner 经 ELECTRON_RUN_AS_NODE 运行；Electron 环境自动降级 job 路径） | ✅ e2e |
+| 8 | a | 回归：157 单测全绿 + typecheck 全绿 | ✅ |
+| 8b | a | 打包冒烟：electron-builder 产物（asar 内 runner + koffi native 经 asarUnpack 加载）；job 模式实测可用（win-unpacked ELECTRON_RUN_AS_NODE 冒烟） | ✅ |
 | 9 | b | setup 幂等；规则与用户存在断言；沙箱身份断言；出站被拒；workspace 读写 | P6-0b（admin skipIf） |
 | 10 | 全 | 真测冒烟（DeepSeek 真实模型） | 待 P6-0b 后 |
 
@@ -118,7 +121,7 @@ sandbox: {
 
 - Online/Offline 双轨（联网命令经授权走 Online 用户）→ P6-0c
 - macOS/Linux 沙箱（Seatbelt/Landlock）→ P6-6
-- desktop 打包（asar）下 runner 的资源分发与 koffi native 模块加载 → P6-0b 打包验证时处理
+- desktop 打包（asar）下 runner 的资源分发与 koffi native 模块加载：**已验证**——closeBundle 复制 runner 到 out/sandbox（asar 内）+ `@koromix/koffi-win32-x64` 显式 optionalDependencies（electron-builder 收集，native 经 asarUnpack）；win-unpacked 以 ELECTRON_RUN_AS_NODE 冒烟 job 模式通过；**Electron 环境 restricted 模式不可用（自动降级 job，见 §3）**
 - `SetTokenInformation(TokenDefaultDacl)` 在普通用户报 error 5 且本方案不依赖（继承直通 stdio）——若未来需支持受限进程内新管道（如 node 脚本 spawn pipe 捕获），需特权环境或改用其他方案
 - `koffi` 为新增 FFI 依赖（prebuilt，免编译链；dsh 已验证同款）→ README 已知取舍记录
 - 测试隔离：`test-setup.ts` 将 HELUO_CODE_HOME 指向 `test-tmp/home`（各包 vitest.config 显式声明 setupFiles——vitest 4 projects 模式根配置不继承）

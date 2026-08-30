@@ -26,6 +26,11 @@ function effectiveMode(configured: SandboxMode): { mode: SandboxMode; warned: st
   if (process.platform !== 'win32') {
     return { mode: 'off', warned: 'sandbox 仅支持 Windows；mode 已强制 off（工具层软约束兜底）' }
   }
+  // GUI 子系统父进程（Electron）创建 console 受限子进程时控制台分配失败（0xC0000142，实测），
+  // restricted-write/isolated 不可用，降级 job（进程树必杀保持）；CLI（纯 node console 进程）完整可用
+  if ('electron' in process.versions && (configured === 'restricted-write' || configured === 'isolated')) {
+    return { mode: 'job', warned: `Electron 环境下 sandbox.mode=${configured} 不可用（受限子进程控制台分配失败 0xC0000142），已降级 job（KILL_ON_JOB_CLOSE 进程树必杀）；CLI 环境完整支持` }
+  }
   if (configured === 'isolated') {
     // P6-0b 前 isolated 尚无防火墙网络隔离，映射为 restricted-write（写限制完整生效）
     return { mode: 'restricted-write', warned: 'sandbox.mode=isolated 的网络隔离待 P6-0b（需管理员 setup），当前按 restricted-write 执行（写限制生效）' }
